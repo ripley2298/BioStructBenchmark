@@ -2,7 +2,7 @@
 
 import pytest
 from pathlib import Path
-from biostructbenchmark.core.io import get_parser, get_structure, _parsers
+from biostructbenchmark.core.io import get_structure
 from Bio.PDB import MMCIFParser, PDBParser
 
 
