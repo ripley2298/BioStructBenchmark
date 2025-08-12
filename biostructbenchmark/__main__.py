@@ -55,6 +55,10 @@ except ImportError:
 def find_structure_pairs(experimental_dir: Path, predicted_dir: Path) -> List[Tuple[Path, Path]]:
     """
     Find matching structure file pairs between experimental and predicted directories
+    Handles common naming patterns like:
+    - p456_02_experimental.pdb <-> p456_02_predicted.pdb
+    - 1abc_exp.pdb <-> 1abc_pred.pdb  
+    - identical stems: structure1.pdb <-> structure1.pdb
     
     Args:
         experimental_dir: Directory containing experimental structures
@@ -63,28 +67,62 @@ def find_structure_pairs(experimental_dir: Path, predicted_dir: Path) -> List[Tu
     Returns:
         List of (experimental_file, predicted_file) tuples
     """
-    # Get all structure files
+    def extract_base_name(filename_stem: str) -> str:
+        """Extract base name from file stem by removing common suffixes"""
+        stem_lower = filename_stem.lower()
+        
+        # Common experimental suffixes to remove
+        exp_suffixes = ['_experimental', '_exp', '_observed', '_obs', '_reference', '_ref', '_crystal', '_xtal']
+        for suffix in exp_suffixes:
+            if stem_lower.endswith(suffix):
+                return stem_lower[:-len(suffix)]
+        
+        # Common predicted suffixes to remove  
+        pred_suffixes = ['_predicted', '_pred', '_computed', '_comp', '_alphafold', '_af', '_model', '_modeled']
+        for suffix in pred_suffixes:
+            if stem_lower.endswith(suffix):
+                return stem_lower[:-len(suffix)]
+        
+        # If no suffix found, return original stem
+        return stem_lower
+    
+    # Get all structure files with base name mapping
     exp_files = {}
     for pattern in ['*.pdb', '*.cif', '*.mmcif']:
         for file in experimental_dir.glob(pattern):
-            # Use stem (filename without extension) as key
-            exp_files[file.stem.lower()] = file
+            base_name = extract_base_name(file.stem)
+            exp_files[base_name] = file
     
     pred_files = {}
     for pattern in ['*.pdb', '*.cif', '*.mmcif']:
         for file in predicted_dir.glob(pattern):
-            pred_files[file.stem.lower()] = file
+            base_name = extract_base_name(file.stem)
+            pred_files[base_name] = file
+    
+    # Debug output
+    print(f"Found experimental files: {list(exp_files.keys())}")
+    print(f"Found predicted files: {list(pred_files.keys())}")
     
     # Find matching pairs
     pairs = []
-    for stem, exp_file in exp_files.items():
-        if stem in pred_files:
-            pairs.append((exp_file, pred_files[stem]))
+    for base_name, exp_file in exp_files.items():
+        if base_name in pred_files:
+            pairs.append((exp_file, pred_files[base_name]))
+            print(f"Matched: {exp_file.name} <-> {pred_files[base_name].name}")
         else:
-            print(f"Warning: No predicted structure found for {exp_file.name}")
+            print(f"Warning: No predicted structure found for {exp_file.name} (base: {base_name})")
+    
+    # Check for unmatched predicted files
+    for base_name, pred_file in pred_files.items():
+        if base_name not in exp_files:
+            print(f"Warning: No experimental structure found for {pred_file.name} (base: {base_name})")
     
     if not pairs:
         print("Error: No matching structure pairs found between directories")
+        print("Make sure files follow naming patterns like:")
+        print("  - p456_02_experimental.pdb <-> p456_02_predicted.pdb")
+        print("  - structure_exp.pdb <-> structure_pred.pdb")
+        print("  - identical names in both directories")
         sys.exit(1)
     
     return pairs
@@ -420,6 +458,8 @@ def main() -> None:
     for i, (exp_file, pred_file) in enumerate(structure_pairs, 1):
         if hasattr(args, 'verbose') and args.verbose:
             print(f"\nProcessing pair {i}/{len(structure_pairs)}")
+        elif hasattr(args, 'file_path_observed'):  # Original CLI feedback
+            print(f"Processing: {exp_file.name} vs {pred_file.name}")
         
         # Core RMSD analysis (always performed)
         result = compare_structures(exp_file, pred_file)
@@ -475,6 +515,12 @@ def process_enhanced_analysis(all_results: List[Dict[str, Any]], output_dir: Pat
     """Process enhanced analysis features (placeholder for advanced functionality)"""
     # This is a simplified version that gracefully handles missing enhanced features
     return all_results
+
+
+def generate_visualizations(all_results: List[Dict[str, Any]], output_dir: Path, args) -> None:
+    """Generate visualizations (placeholder for advanced functionality)"""
+    # Placeholder for visualization generation
+    pass
 
 
 if __name__ == "__main__":
