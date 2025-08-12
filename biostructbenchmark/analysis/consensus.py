@@ -1,5 +1,4 @@
 # Create the file with the consensus analyzer code
-cat > biostructbenchmark/analysis/consensus.py << 'EOF'
 """
 biostructbenchmark/analysis/consensus.py
 Consensus error mapping across multiple structure comparisons
@@ -188,4 +187,3 @@ class ConsensusAnalyzer:
                 for e in consensus_errors[:10]
             ]
         }
-EOF

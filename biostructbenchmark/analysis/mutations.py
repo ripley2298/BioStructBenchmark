@@ -1,5 +1,4 @@
 # Create the mutations analyzer file
-cat > biostructbenchmark/analysis/mutations.py << 'EOF'
 """
 biostructbenchmark/analysis/mutations.py
 Mutation detection and impact analysis
@@ -147,4 +146,3 @@ class MutationAnalyzer:
             return 'non-conservative'  # Size change
         else:
             return 'conservative'  # Similar properties
-EOF
