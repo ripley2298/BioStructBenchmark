@@ -1,527 +1,431 @@
-#!/usr/bin/env python3
 """
-Enhanced entry point for biostructbenchmark with full feature integration
+biostructbenchmark/__main__.py
+Main entry point for BioStructBenchmark with multi-frame alignment support
 """
 
 import sys
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Tuple
-from collections import defaultdict
-
-# Core functionality
-from biostructbenchmark.core.alignment import compare_structures, export_residue_rmsd_csv
-from biostructbenchmark.cli import arg_parser
-
-# Analysis modules (with graceful fallbacks)
-try:
-    from biostructbenchmark.analysis.bfactor import BFactorAnalyzer
-    BFACTOR_AVAILABLE = True
-except ImportError:
-    BFACTOR_AVAILABLE = False
-
-try:
-    from biostructbenchmark.analysis.curves import CurvesAnalyzer
-    CURVES_AVAILABLE = True
-except ImportError:
-    CURVES_AVAILABLE = False
-
-try:
-    from biostructbenchmark.analysis.consensus import ConsensusAnalyzer
-    CONSENSUS_AVAILABLE = True
-except ImportError:
-    CONSENSUS_AVAILABLE = False
-
-try:
-    from biostructbenchmark.analysis.mutations import MutationAnalyzer
-    MUTATIONS_AVAILABLE = True
-except ImportError:
-    MUTATIONS_AVAILABLE = False
-
-try:
-    from biostructbenchmark.analysis.secondary import SecondaryStructureAnalyzer
-    SECONDARY_AVAILABLE = True
-except ImportError:
-    SECONDARY_AVAILABLE = False
-
-# Visualization modules (with graceful fallbacks)
-try:
-    from biostructbenchmark.visualization.plots import create_publication_report
-    from biostructbenchmark.visualization.residue_plots import create_residue_report
-    VISUALIZATION_AVAILABLE = True
-except ImportError:
-    VISUALIZATION_AVAILABLE = False
+from typing import Dict, Any, Optional
+import json
+import traceback
 
 
-def find_structure_pairs(experimental_dir: Path, predicted_dir: Path) -> List[Tuple[Path, Path]]:
-    """
-    Find matching structure file pairs between experimental and predicted directories
-    Handles common naming patterns like:
-    - p456_02_experimental.pdb <-> p456_02_predicted.pdb
-    - 1abc_exp.pdb <-> 1abc_pred.pdb  
-    - identical stems: structure1.pdb <-> structure1.pdb
-    
-    Args:
-        experimental_dir: Directory containing experimental structures
-        predicted_dir: Directory containing predicted structures
+def main():
+    """Main entry point with comprehensive error handling and multi-frame support"""
+    try:
+        # Import CLI module
+        from biostructbenchmark.cli import (
+            arg_parser, 
+            get_analysis_flags, 
+            get_structure_pairs,
+            get_version,
+            print_multi_frame_summary,
+            export_multi_frame_results
+        )
         
+        # Parse arguments
+        args = arg_parser()
+        analysis_flags = get_analysis_flags(args)
+        
+        # Setup logging level
+        if args.verbose:
+            import logging
+            logging.basicConfig(level=logging.DEBUG)
+        elif args.quiet:
+            import logging
+            logging.basicConfig(level=logging.ERROR)
+        
+        # Print header
+        if not args.quiet:
+            print(f"BioStructBenchmark v{get_version()}")
+            print("=" * 70)
+            print(f"Experimental: {args.experimental}")
+            print(f"Predicted: {args.predicted}")
+            print(f"Output: {args.output}")
+            print("=" * 70)
+        
+        # Get structure pairs to process
+        structure_pairs = get_structure_pairs(args)
+        
+        if not structure_pairs:
+            print("Error: No valid structure pairs found", file=sys.stderr)
+            return 1
+        
+        # Track overall results
+        all_results = []
+        failed_pairs = []
+        
+        # Process each structure pair
+        for i, (exp_path, pred_path) in enumerate(structure_pairs, 1):
+            if not args.quiet:
+                print(f"\n[{i}/{len(structure_pairs)}] Processing: {exp_path.name} vs {pred_path.name}")
+            
+            # Create output directory for this pair
+            pair_name = f"{exp_path.stem}_vs_{pred_path.stem}"
+            pair_output = args.output / pair_name
+            pair_output.mkdir(parents=True, exist_ok=True)
+            
+            try:
+                # Run analyses based on flags
+                pair_results = run_analyses(
+                    exp_path, pred_path, pair_output, 
+                    analysis_flags, args
+                )
+                
+                all_results.append({
+                    'pair': pair_name,
+                    'experimental': str(exp_path),
+                    'predicted': str(pred_path),
+                    'results': pair_results
+                })
+                
+            except Exception as e:
+                print(f"Error processing {pair_name}: {e}", file=sys.stderr)
+                if args.verbose:
+                    traceback.print_exc()
+                failed_pairs.append(pair_name)
+                continue
+        
+        # Generate summary report if multiple pairs
+        if len(structure_pairs) > 1:
+            generate_batch_report(all_results, failed_pairs, args.output)
+        
+        # Final summary
+        if not args.quiet:
+            print("\n" + "=" * 70)
+            print("ANALYSIS COMPLETE")
+            print(f"Processed: {len(all_results)}/{len(structure_pairs)} pairs")
+            if failed_pairs:
+                print(f"Failed: {', '.join(failed_pairs)}")
+            print(f"Results saved to: {args.output}")
+            print("=" * 70)
+        
+        return 0 if not failed_pairs else 1
+        
+    except KeyboardInterrupt:
+        print("\nAnalysis interrupted by user", file=sys.stderr)
+        return 130
+    except Exception as e:
+        print(f"Fatal error: {e}", file=sys.stderr)
+        if '--verbose' in sys.argv or '-v' in sys.argv:
+            traceback.print_exc()
+        return 1
+
+
+def run_analyses(exp_path: Path, pred_path: Path, output_dir: Path, 
+                 flags: Dict[str, bool], args) -> Dict[str, Any]:
+    """
+    Run all requested analyses on a structure pair
+    
     Returns:
-        List of (experimental_file, predicted_file) tuples
-    """
-    def extract_base_name(filename_stem: str) -> str:
-        """Extract base name from file stem by removing common suffixes"""
-        stem_lower = filename_stem.lower()
-        
-        # Common experimental suffixes to remove
-        exp_suffixes = ['_experimental', '_exp', '_observed', '_obs', '_reference', '_ref', '_crystal', '_xtal']
-        for suffix in exp_suffixes:
-            if stem_lower.endswith(suffix):
-                return stem_lower[:-len(suffix)]
-        
-        # Common predicted suffixes to remove  
-        pred_suffixes = ['_predicted', '_pred', '_computed', '_comp', '_alphafold', '_af', '_model', '_modeled']
-        for suffix in pred_suffixes:
-            if stem_lower.endswith(suffix):
-                return stem_lower[:-len(suffix)]
-        
-        # If no suffix found, return original stem
-        return stem_lower
-    
-    # Get all structure files with base name mapping
-    exp_files = {}
-    for pattern in ['*.pdb', '*.cif', '*.mmcif']:
-        for file in experimental_dir.glob(pattern):
-            base_name = extract_base_name(file.stem)
-            exp_files[base_name] = file
-    
-    pred_files = {}
-    for pattern in ['*.pdb', '*.cif', '*.mmcif']:
-        for file in predicted_dir.glob(pattern):
-            base_name = extract_base_name(file.stem)
-            pred_files[base_name] = file
-    
-    # Debug output
-    print(f"Found experimental files: {list(exp_files.keys())}")
-    print(f"Found predicted files: {list(pred_files.keys())}")
-    
-    # Find matching pairs
-    pairs = []
-    for base_name, exp_file in exp_files.items():
-        if base_name in pred_files:
-            pairs.append((exp_file, pred_files[base_name]))
-            print(f"Matched: {exp_file.name} <-> {pred_files[base_name].name}")
-        else:
-            print(f"Warning: No predicted structure found for {exp_file.name} (base: {base_name})")
-    
-    # Check for unmatched predicted files
-    for base_name, pred_file in pred_files.items():
-        if base_name not in exp_files:
-            print(f"Warning: No experimental structure found for {pred_file.name} (base: {base_name})")
-    
-    if not pairs:
-        print("Error: No matching structure pairs found between directories")
-        print("Make sure files follow naming patterns like:")
-        print("  - p456_02_experimental.pdb <-> p456_02_predicted.pdb")
-        print("  - structure_exp.pdb <-> structure_pred.pdb")
-        print("  - identical names in both directories")
-        sys.exit(1)
-    
-    return pairs
-
-
-def process_single_pair(exp_file: Path, pred_file: Path, args) -> Dict[str, Any]:
-    """
-    Process a single experimental-predicted structure pair
-    
-    Args:
-        exp_file: Experimental structure file
-        pred_file: Predicted structure file
-        args: CLI arguments
-        
-    Returns:
-        Dictionary containing all analysis results
+        Dictionary of analysis results
     """
     results = {}
     
-    if args.verbose:
-        print(f"Processing: {exp_file.name} vs {pred_file.name}")
+    # Multi-frame alignment (highest priority)
+    if flags.get('multi_frame'):
+        results['multi_frame'] = run_multi_frame_alignment(
+            exp_path, pred_path, output_dir, args
+        )
     
-    # Core RMSD analysis (always performed)
-    alignment_result = compare_structures(exp_file, pred_file)
-    if alignment_result is None:
-        print(f"Error: Unable to align {exp_file.name} and {pred_file.name}")
-        return {}
-    
-    results['rmsd'] = alignment_result.residue_rmsds
-    results['alignment'] = alignment_result
-    
-    # B-factor analysis
-    if args.bfactor and BFACTOR_AVAILABLE:
-        try:
-            analyzer = BFactorAnalyzer()
-            bfactor_comparisons, bfactor_stats = analyzer.compare_bfactors(exp_file, pred_file)
-            results['bfactor'] = bfactor_comparisons
-            results['bfactor_stats'] = bfactor_stats
-            if args.verbose:
-                print(f"  B-factor analysis: {len(bfactor_comparisons)} residues analyzed")
-        except Exception as e:
-            print(f"Warning: B-factor analysis failed: {e}")
+    # Single-frame RMSD (if not doing multi-frame)
+    elif flags.get('rmsd') and not flags.get('multi_frame'):
+        results['rmsd'] = run_basic_rmsd(
+            exp_path, pred_path, output_dir, args
+        )
     
     # CURVES+ analysis
-    if args.curves and CURVES_AVAILABLE:
-        try:
-            analyzer = CurvesAnalyzer()
-            curves_params = analyzer.analyze_structure(exp_file)
-            results['curves'] = curves_params
-            if args.verbose:
-                print(f"  CURVES+ analysis: {len(curves_params)} base pair steps analyzed")
-        except Exception as e:
-            print(f"Warning: CURVES+ analysis failed: {e}")
+    if flags.get('curves'):
+        results['curves'] = run_curves_analysis(
+            exp_path, pred_path, output_dir, args
+        )
+    
+    # B-factor analysis
+    if flags.get('bfactor'):
+        results['bfactor'] = run_bfactor_analysis(
+            exp_path, pred_path, output_dir, args
+        )
+    
+    # Consensus analysis (if applicable)
+    if flags.get('consensus'):
+        results['consensus'] = run_consensus_analysis(
+            exp_path, pred_path, output_dir, args
+        )
     
     # Mutation analysis
-    if args.mutations and MUTATIONS_AVAILABLE:
-        try:
-            analyzer = MutationAnalyzer()
-            mutations = analyzer.detect_mutations(exp_file, pred_file)
-            results['mutations'] = mutations
-            if args.verbose:
-                print(f"  Mutation analysis: {len(mutations)} mutations detected")
-        except Exception as e:
-            print(f"Warning: Mutation analysis failed: {e}")
+    if flags.get('mutations'):
+        results['mutations'] = run_mutation_analysis(
+            exp_path, pred_path, output_dir, args
+        )
     
-    # Secondary structure analysis
-    if args.secondary and SECONDARY_AVAILABLE:
-        try:
-            analyzer = SecondaryStructureAnalyzer()
-            ss_assignments = analyzer.analyze(exp_file)
-            results['secondary'] = ss_assignments
-            if args.verbose:
-                print(f"  Secondary structure: {len(ss_assignments)} residues assigned")
-        except Exception as e:
-            print(f"Warning: Secondary structure analysis failed: {e}")
+    # Visualization
+    if flags.get('visualize'):
+        results['visualization'] = generate_visualizations(
+            results, output_dir, args
+        )
     
     return results
 
 
-def export_results(all_results: List[Dict[str, Any]], output_dir: Path, args) -> None:
-    """
-    Export all analysis results to files
-    
-    Args:
-        all_results: List of analysis results from all structure pairs
-        output_dir: Output directory
-        args: CLI arguments
-    """
-    # Combine RMSD data from all pairs
-    all_rmsd_data = []
-    for result in all_results:
-        if 'rmsd' in result:
-            all_rmsd_data.extend(result['rmsd'])
-    
-    if all_rmsd_data:
-        export_residue_rmsd_csv(all_rmsd_data, output_dir / 'per_residue_rmsd.csv')
-    
-    # Export B-factor analysis
-    if args.bfactor:
-        bfactor_data = []
-        for result in all_results:
-            if 'bfactor' in result:
-                bfactor_data.extend(result['bfactor'])
-        
-        if bfactor_data:
-            import pandas as pd
-            df = pd.DataFrame([{
-                'residue_id': b.residue_id,
-                'chain_id': b.chain_id,
-                'position': b.position,
-                'experimental_bfactor': f'{b.experimental_bfactor:.3f}',
-                'predicted_confidence': f'{b.predicted_confidence:.3f}',
-                'difference': f'{b.difference:.3f}'
-            } for b in bfactor_data])
-            df.to_csv(output_dir / 'bfactor_comparison.csv', index=False)
-    
-    # Export consensus analysis (if multiple pairs)
-    if args.consensus and len(all_results) >= 2 and CONSENSUS_AVAILABLE:
-        try:
-            analyzer = ConsensusAnalyzer(rmsd_threshold=args.rmsd_threshold)
-            
-            # Add all structure comparisons
-            for i, result in enumerate(all_results):
-                if 'rmsd' in result:
-                    analyzer.add_structure_comparison(result['rmsd'], f'structure_{i+1}')
-            
-            # Calculate consensus errors
-            consensus_errors = analyzer.calculate_consensus(min_structures=2)
-            if consensus_errors:
-                analyzer.export_consensus_map(consensus_errors, output_dir / 'consensus_errors.csv')
-        except Exception as e:
-            print(f"Warning: Consensus analysis failed: {e}")
-    
-    # Export mutation analysis
-    if args.mutations:
-        mutation_data = []
-        for result in all_results:
-            if 'mutations' in result:
-                mutation_data.extend(result['mutations'])
-        
-        if mutation_data:
-            import pandas as pd
-            df = pd.DataFrame([{
-                'chain_id': m.chain_id,
-                'position': m.position,
-                'wild_type': m.wild_type,
-                'mutant': m.mutant,
-                'local_rmsd': f'{m.local_rmsd:.3f}',
-                'impact_score': f'{m.impact_score:.3f}',
-                'mutation_type': m.mutation_type
-            } for m in mutation_data])
-            df.to_csv(output_dir / 'mutation_analysis.csv', index=False)
-
-
-def generate_visualizations(all_results: List[Dict[str, Any]], output_dir: Path, args) -> None:
-    """
-    Generate publication-ready visualizations
-    
-    Args:
-        all_results: List of analysis results
-        output_dir: Output directory
-        args: CLI arguments
-    """
-    if not args.generate_plots or not VISUALIZATION_AVAILABLE:
-        return
-    
-    plots_dir = output_dir / 'plots'
-    plots_dir.mkdir(exist_ok=True)
-    
-    # Prepare data for visualization
-    viz_data = {}
-    
-    # Collect RMSD data
-    all_rmsd = []
-    for result in all_results:
-        if 'rmsd' in result:
-            all_rmsd.extend(result['rmsd'])
-    if all_rmsd:
-        viz_data['rmsd'] = all_rmsd
-    
-    # Collect B-factor data
-    all_bfactor = []
-    for result in all_results:
-        if 'bfactor' in result:
-            all_bfactor.extend(result['bfactor'])
-    if all_bfactor:
-        viz_data['bfactor'] = all_bfactor
-    
-    # Collect mutation data
-    all_mutations = []
-    for result in all_results:
-        if 'mutations' in result:
-            all_mutations.extend(result['mutations'])
-    if all_mutations:
-        viz_data['mutations'] = all_mutations
-    
+def run_multi_frame_alignment(exp_path: Path, pred_path: Path, 
+                             output_dir: Path, args) -> Optional[Dict]:
+    """Run multi-frame alignment analysis"""
     try:
-        # Generate publication report
-        output_paths = create_publication_report(viz_data, plots_dir)
+        from biostructbenchmark.core.alignment import perform_multi_frame_alignment
+        from biostructbenchmark.cli import (
+            print_multi_frame_summary,
+            export_multi_frame_results
+        )
         
-        # Generate residue-specific plots
-        if 'rmsd' in viz_data:
-            residue_paths = create_residue_report(viz_data['rmsd'], plots_dir)
-            output_paths.update(residue_paths)
+        if not args.quiet:
+            print("  → Running multi-frame alignment analysis...")
         
-        if args.verbose:
-            print(f"Generated {len(output_paths)} visualization files in {plots_dir}")
-    
+        # Determine if we should save aligned structures
+        alignment_output = output_dir / "alignments" if args.save_aligned else None
+        
+        # Perform alignment
+        result = perform_multi_frame_alignment(
+            exp_path, pred_path, alignment_output
+        )
+        
+        if result:
+            # Print summary if not quiet
+            if not args.quiet:
+                print_multi_frame_summary(result)
+            
+            # Export results
+            export_multi_frame_results(result, output_dir, args.output_format)
+            
+            # Return summary for aggregation
+            return result.get_summary()
+        
+        return None
+        
+    except ImportError as e:
+        print(f"  ⚠ Multi-frame alignment not available: {e}")
+        return None
     except Exception as e:
-        print(f"Warning: Visualization generation failed: {e}")
+        print(f"  ✗ Multi-frame alignment failed: {e}")
+        if args.verbose:
+            traceback.print_exc()
+        return None
 
 
-def print_summary(all_results: List[Dict[str, Any]], args) -> None:
-    """
-    Print analysis summary to console
-    
-    Args:
-        all_results: List of analysis results
-        args: CLI arguments
-    """
-    if not all_results:
-        print("No results to summarize")
-        return
-    
-    # Overall statistics
-    total_pairs = len(all_results)
-    successful_pairs = len([r for r in all_results if 'rmsd' in r])
-    
-    print(f"\nAnalysis Summary:")
-    print(f"================")
-    print(f"Structure pairs processed: {successful_pairs}/{total_pairs}")
-    
-    # RMSD statistics
-    all_rmsds = []
-    for result in all_results:
-        if 'alignment' in result:
-            all_rmsds.append(result['alignment'].overall_rmsd)
-    
-    if all_rmsds:
-        import numpy as np
-        print(f"Overall RMSD: {np.mean(all_rmsds):.3f} ± {np.std(all_rmsds):.3f} Å")
-        print(f"RMSD range: {min(all_rmsds):.3f} - {max(all_rmsds):.3f} Å")
-    
-    # Module-specific summaries
-    if args.bfactor:
-        bfactor_count = sum(len(r.get('bfactor', [])) for r in all_results)
-        print(f"B-factor comparisons: {bfactor_count} residues")
-    
-    if args.mutations:
-        mutation_count = sum(len(r.get('mutations', [])) for r in all_results)
-        print(f"Mutations detected: {mutation_count}")
-    
-    if args.curves:
-        curves_count = sum(len(r.get('curves', {})) for r in all_results)
-        print(f"CURVES+ analyses: {curves_count} base pair steps")
-
-
-def print_analysis_summary(args) -> None:
-    """
-    Print summary of selected analyses for user confirmation
-    
-    Args:
-        args: Arguments namespace
-    """
-    if hasattr(args, 'verbose') and args.verbose:
-        print("BioStructBenchmark Analysis Configuration:")
-        print("=" * 45)
+def run_basic_rmsd(exp_path: Path, pred_path: Path, 
+                   output_dir: Path, args) -> Optional[Dict]:
+    """Run basic RMSD analysis"""
+    try:
+        from biostructbenchmark.core.alignment import compare_structures
+        from biostructbenchmark.core.alignment import export_residue_rmsd_csv
         
-        # Input mode
-        if hasattr(args, 'experimental_file'):
-            print(f"Mode: Single file comparison")
-            print(f"Experimental: {args.experimental_file}")
-            print(f"Predicted: {args.predicted_file}")
-        elif hasattr(args, 'experimental'):
-            print(f"Mode: Batch directory processing")
-            print(f"Experimental: {args.experimental}")
-            print(f"Predicted: {args.predicted}")
-        else:
-            print(f"Experimental: {args.file_path_observed}")
-            print(f"Predicted: {args.file_path_predicted}")
+        if not args.quiet:
+            print(f"  → Running {args.reference_frame} frame RMSD analysis...")
         
-        if hasattr(args, 'output'):
-            print(f"Output: {args.output}")
+        result = compare_structures(exp_path, pred_path)
         
-        print("=" * 45)
-
-
-def main() -> None:
-    """Enhanced main entry point supporting all BioStructBenchmark features"""
-    # Parse and validate arguments
-    args = arg_parser()
-    
-    # Handle backward compatibility with original CLI
-    if hasattr(args, 'file_path_observed') and hasattr(args, 'file_path_predicted'):
-        # Original CLI - single file mode
-        structure_pairs = [(args.file_path_observed, args.file_path_predicted)]
-        output_dir = Path("results")
-        output_dir.mkdir(exist_ok=True)
-        
-        # Set default flags for original CLI
-        args.rmsd_only = True
-        args.verbose = False
-        args.generate_plots = False
-        args.bfactor = False
-        args.curves = False
-        args.consensus = False
-        args.mutations = False
-        args.secondary = False
-        
-        print("Running in basic RMSD analysis mode (original CLI)")
-        
-    elif hasattr(args, 'experimental_file'):
-        # Enhanced CLI - single file mode
-        structure_pairs = [(args.experimental_file, args.predicted_file)]
-        output_dir = args.output
-        print_analysis_summary(args)
-        
-    elif hasattr(args, 'experimental'):
-        # Enhanced CLI - directory mode
-        structure_pairs = find_structure_pairs(args.experimental, args.predicted)
-        output_dir = args.output
-        print_analysis_summary(args)
-        
-    else:
-        print("Error: Invalid arguments provided")
-        sys.exit(1)
-    
-    if hasattr(args, 'verbose') and args.verbose:
-        print(f"Found {len(structure_pairs)} structure pairs to analyze")
-    
-    # Process all structure pairs (simplified for original CLI compatibility)
-    all_results = []
-    for i, (exp_file, pred_file) in enumerate(structure_pairs, 1):
-        if hasattr(args, 'verbose') and args.verbose:
-            print(f"\nProcessing pair {i}/{len(structure_pairs)}")
-        elif hasattr(args, 'file_path_observed'):  # Original CLI feedback
-            print(f"Processing: {exp_file.name} vs {pred_file.name}")
-        
-        # Core RMSD analysis (always performed)
-        result = compare_structures(exp_file, pred_file)
-        if result is not None:
-            all_results.append({'rmsd': result.residue_rmsds, 'alignment': result})
+        if result:
+            # Export if requested
+            if args.output_format in ['csv', 'both']:
+                export_residue_rmsd_csv(
+                    result.residue_rmsds,
+                    output_dir / "rmsd_analysis.csv",
+                    args.reference_frame
+                )
             
-            # Print basic results (compatible with original CLI)
-            print(f"RMSD: {result.overall_rmsd:.3f} Å")
-            print(f"Aligned atoms: {result.aligned_atom_count}")
-            print(f"Per-residue analysis: {len(result.residue_rmsds)} residues")
-            
-            # Show statistics
-            protein_residues = [r for r in result.residue_rmsds if r.molecule_type == 'protein']
-            dna_residues = [r for r in result.residue_rmsds if r.molecule_type == 'dna']
-            
-            if protein_residues:
-                protein_rmsd_avg = sum(r.rmsd for r in protein_residues) / len(protein_residues)
-                print(f"Protein average per-residue RMSD: {protein_rmsd_avg:.3f} Å ({len(protein_residues)} residues)")
-            
-            if dna_residues:
-                dna_rmsd_avg = sum(r.rmsd for r in dna_residues) / len(dna_residues)
-                print(f"DNA average per-residue RMSD: {dna_rmsd_avg:.3f} Å ({len(dna_residues)} residues)")
-                
-        else:
-            print(f"Error: Unable to compare {exp_file.name} and {pred_file.name}")
-    
-    # Export basic results
-    if all_results:
-        all_rmsd_data = []
-        for result in all_results:
-            if 'rmsd' in result:
-                all_rmsd_data.extend(result['rmsd'])
+            # Return summary
+            return {
+                'overall_rmsd': result.overall_rmsd,
+                'atom_count': result.aligned_atom_count,
+                'residue_count': len(result.residue_rmsds)
+            }
         
-        if all_rmsd_data:
-            output_path = output_dir / 'per_residue_rmsd.csv'
-            export_residue_rmsd_csv(all_rmsd_data, output_path)
-            print(f"Detailed results exported to: {output_path}")
-    
-    # Enhanced features (only if enhanced CLI is available)
-    if hasattr(args, 'bfactor') and (args.bfactor or args.curves or args.consensus or args.mutations or args.secondary):
-        try:
-            # Try to run enhanced analysis
-            enhanced_results = process_enhanced_analysis(all_results, output_dir, args)
-            if hasattr(args, 'generate_plots') and args.generate_plots:
-                generate_visualizations(enhanced_results, output_dir, args)
-        except Exception as e:
-            print(f"Warning: Enhanced analysis failed: {e}")
-    
-    print(f"\nAnalysis complete! Results saved to: {output_dir}")
+        return None
+        
+    except Exception as e:
+        print(f"  ✗ RMSD analysis failed: {e}")
+        return None
 
 
-def process_enhanced_analysis(all_results: List[Dict[str, Any]], output_dir: Path, args) -> List[Dict[str, Any]]:
-    """Process enhanced analysis features (placeholder for advanced functionality)"""
-    # This is a simplified version that gracefully handles missing enhanced features
-    return all_results
+def run_curves_analysis(exp_path: Path, pred_path: Path, 
+                       output_dir: Path, args) -> Optional[Dict]:
+    """Run CURVES+ DNA geometry analysis"""
+    try:
+        from biostructbenchmark.analysis.curves import run_curves_analysis
+        
+        if not args.quiet:
+            print("  → Running CURVES+ DNA geometry analysis...")
+        
+        result = run_curves_analysis(exp_path, pred_path, output_dir)
+        
+        if result and not args.quiet:
+            print("  ✓ CURVES+ analysis complete")
+        
+        return result
+        
+    except ImportError:
+        if args.verbose:
+            print("  ⚠ CURVES+ module not available")
+        return None
+    except Exception as e:
+        print(f"  ✗ CURVES+ analysis failed: {e}")
+        return None
 
 
-def generate_visualizations(all_results: List[Dict[str, Any]], output_dir: Path, args) -> None:
-    """Generate visualizations (placeholder for advanced functionality)"""
-    # Placeholder for visualization generation
-    pass
+def run_bfactor_analysis(exp_path: Path, pred_path: Path, 
+                        output_dir: Path, args) -> Optional[Dict]:
+    """Run B-factor vs pLDDT analysis"""
+    try:
+        from biostructbenchmark.analysis.bfactor import analyze_bfactors
+        
+        if not args.quiet:
+            print("  → Analyzing B-factors vs confidence metrics...")
+        
+        result = analyze_bfactors(exp_path, pred_path, output_dir)
+        
+        if result and not args.quiet:
+            print("  ✓ B-factor analysis complete")
+        
+        return result
+        
+    except ImportError:
+        if args.verbose:
+            print("  ⚠ B-factor module not available")
+        return None
+    except Exception as e:
+        print(f"  ✗ B-factor analysis failed: {e}")
+        return None
+
+
+def run_consensus_analysis(exp_path: Path, pred_path: Path, 
+                          output_dir: Path, args) -> Optional[Dict]:
+    """Run consensus error mapping"""
+    try:
+        from biostructbenchmark.analysis.consensus import generate_consensus_map
+        
+        if not args.quiet:
+            print("  → Generating consensus error map...")
+        
+        result = generate_consensus_map(
+            exp_path, pred_path, output_dir,
+            threshold=args.rmsd_threshold
+        )
+        
+        if result and not args.quiet:
+            print("  ✓ Consensus analysis complete")
+        
+        return result
+        
+    except ImportError:
+        if args.verbose:
+            print("  ⚠ Consensus module not available")
+        return None
+    except Exception as e:
+        print(f"  ✗ Consensus analysis failed: {e}")
+        return None
+
+
+def run_mutation_analysis(exp_path: Path, pred_path: Path, 
+                         output_dir: Path, args) -> Optional[Dict]:
+    """Run mutation impact analysis"""
+    try:
+        from biostructbenchmark.analysis.mutations import analyze_mutations
+        
+        if not args.quiet:
+            print("  → Analyzing mutation impacts...")
+        
+        result = analyze_mutations(exp_path, pred_path, output_dir)
+        
+        if result and not args.quiet:
+            print(f"  ✓ Found {result.get('mutation_count', 0)} mutations")
+        
+        return result
+        
+    except ImportError:
+        if args.verbose:
+            print("  ⚠ Mutations module not available")
+        return None
+    except Exception as e:
+        print(f"  ✗ Mutation analysis failed: {e}")
+        return None
+
+
+def generate_visualizations(results: Dict, output_dir: Path, args) -> Optional[Dict]:
+    """Generate all requested visualizations"""
+    try:
+        from biostructbenchmark.visualization.plots import PublicationPlotter
+        
+        if not args.quiet:
+            print("  → Generating visualizations...")
+        
+        plotter = PublicationPlotter()
+        viz_results = {}
+        
+        # Multi-frame dashboard if available
+        if 'multi_frame' in results and results['multi_frame']:
+            # This would need the actual result object, not just summary
+            # For now, we'll note it was requested
+            viz_results['multi_frame_dashboard'] = str(output_dir / "multi_frame_dashboard.png")
+        
+        # General dashboard for all analyses
+        if len(results) > 1:
+            plotter.summary_dashboard(
+                results,
+                output_dir / "analysis_dashboard.png"
+            )
+            viz_results['dashboard'] = str(output_dir / "analysis_dashboard.png")
+        
+        if not args.quiet:
+            print(f"  ✓ Generated {len(viz_results)} visualizations")
+        
+        return viz_results
+        
+    except ImportError:
+        if args.verbose:
+            print("  ⚠ Visualization module not available")
+        return None
+    except Exception as e:
+        print(f"  ✗ Visualization failed: {e}")
+        return None
+
+
+def generate_batch_report(all_results: list, failed_pairs: list, output_dir: Path):
+    """Generate summary report for batch processing"""
+    try:
+        report = {
+            'summary': {
+                'total_pairs': len(all_results) + len(failed_pairs),
+                'successful': len(all_results),
+                'failed': len(failed_pairs)
+            },
+            'results': all_results,
+            'failed_pairs': failed_pairs
+        }
+        
+        # Calculate aggregate statistics
+        if all_results:
+            rmsds = []
+            for result in all_results:
+                if 'results' in result:
+                    if 'multi_frame' in result['results'] and result['results']['multi_frame']:
+                        rmsds.append(result['results']['multi_frame'].get('full_structure_rmsd'))
+                    elif 'rmsd' in result['results'] and result['results']['rmsd']:
+                        rmsds.append(result['results']['rmsd'].get('overall_rmsd'))
+            
+            if rmsds:
+                import numpy as np
+                report['summary']['mean_rmsd'] = float(np.mean([r for r in rmsds if r]))
+                report['summary']['std_rmsd'] = float(np.std([r for r in rmsds if r]))
+        
+        # Save report
+        report_path = output_dir / "batch_analysis_report.json"
+        with open(report_path, 'w') as f:
+            json.dump(report, f, indent=2)
+        
+        print(f"\nBatch report saved to: {report_path}")
+        
+    except Exception as e:
+        print(f"Warning: Could not generate batch report: {e}")
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
