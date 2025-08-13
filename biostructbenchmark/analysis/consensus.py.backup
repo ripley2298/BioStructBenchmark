@@ -11,7 +11,7 @@ from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 from collections import defaultdict
 
-from biostructbenchmark.core.alignment import ResidueRMSD
+from ..core.alignment import ResidueRMSD
 
 
 @dataclass

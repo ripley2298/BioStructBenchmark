@@ -16,7 +16,7 @@ except ImportError:
     SNS_AVAILABLE = False
 
 # Import data structures from analysis modules
-from biostructbenchmark.core.alignment import ResidueRMSD
+from ..core.alignment import ResidueRMSD
 
 
 class PublicationPlotter:

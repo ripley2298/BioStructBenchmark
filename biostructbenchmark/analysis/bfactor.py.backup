@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 
-from biostructbenchmark.core.io import get_structure
+from ..core.io import get_structure
 
 @dataclass
 class BFactorComparison:

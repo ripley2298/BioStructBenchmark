@@ -25,9 +25,9 @@ BioStructBenchmark/
 │   └── visualization/ ⚠️ (Partially implemented, requires testing)
 │       ├── __init__.py ✅ (Has conditional imports)
 │       ├── structure.py ✅ NEW (Compact Py3Dmol implementation, 283 lines)
-│       ├── residue_plots.py ❌ (Referenced but missing)
+│       ├── residue_plots.py ✅
 │       ├── curves_plots.py ✅
-│       └── plots.py ❌ (Not implemented)
+│       └── plots.py ✅ 
 │
 └── tests/
     ├── test_cli.py ✅ (Basic tests)
@@ -39,9 +39,19 @@ BioStructBenchmark/
     ├── test_visualization.py ❌ (Missing)
     ├── dependency_test.py ✅ (Checks all dependencies)
     ├── advanced_integration_test.py ✅ (Integration validation)
-    └── test_data/ ❓ (Referenced but not shown)
-        ├── proteins_pdb/ ❓
-        │   └── 1bom.pdb ❓
-        ├── proteins_cif/ ❓
-        │   └── 1bom.cif ❓
-        └── empty.cif ❓
+    └── data/ ✅ (Referenced but not shown)
+	├── empty.cif ✅
+	│
+	├── invalid.cif ✅
+	│
+	├── invalid.extension ✅
+	│
+	├── invalid.pdb ✅
+	│
+	├── no_extension ✅
+	│
+        ├── proteins_pdb/ ✅
+        │   └── 1bom.pdb ✅
+        ├── proteins_cif/ ✅
+        │   └── 1bom.cif ✅
+        └── empty.cif ✅

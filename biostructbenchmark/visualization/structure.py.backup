@@ -16,8 +16,8 @@ try:
 except ImportError:
     PY3DMOL_AVAILABLE = False
 
-from biostructbenchmark.core.io import get_structure
-from biostructbenchmark.core.alignment import ResidueRMSD
+from ..core.io import get_structure
+from ..core.alignment import ResidueRMSD
 
 
 class StructureVisualizer:

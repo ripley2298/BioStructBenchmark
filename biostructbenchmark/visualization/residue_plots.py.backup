@@ -15,7 +15,7 @@ try:
 except ImportError:
     SNS_AVAILABLE = False
 
-from biostructbenchmark.core.alignment import ResidueRMSD
+from ..core.alignment import ResidueRMSD
 
 
 class ResidueVisualizer:

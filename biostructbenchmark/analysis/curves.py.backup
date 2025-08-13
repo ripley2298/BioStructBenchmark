@@ -16,7 +16,7 @@ import pandas as pd
 import numpy as np
 from Bio.PDB import Structure
 
-from biostructbenchmark.core.io import get_structure
+from ..core.io import get_structure
 
 
 @dataclass

@@ -9,8 +9,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Set
 from dataclasses import dataclass
 
-from biostructbenchmark.core.io import get_structure
-from biostructbenchmark.core.alignment import ResidueRMSD
+from ..core.io import get_structure
+from ..core.alignment import ResidueRMSD
 
 
 @dataclass

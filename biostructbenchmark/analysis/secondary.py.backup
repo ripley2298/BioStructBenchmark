@@ -8,7 +8,7 @@ from typing import Dict, List, Tuple
 from dataclasses import dataclass
 import numpy as np
 
-from biostructbenchmark.core.io import get_structure
+from ..core.io import get_structure
 
 @dataclass
 class SecondaryStructure:
