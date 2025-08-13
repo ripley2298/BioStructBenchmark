@@ -1,10 +1,13 @@
-"""CLI scripts with full documented interface support"""
+"""
+biostructbenchmark/cli.py
+Complete CLI module with corrected path validation for test compatibility
+"""
 
 import argparse
 import os
 import sys
 from pathlib import Path
-from typing import Union, List, Optional
+from typing import Union, List, Optional, Tuple
 
 
 def validate_path(input_path: str, must_exist: bool = True, 
@@ -18,7 +21,7 @@ def validate_path(input_path: str, must_exist: bool = True,
         allow_directory: Whether directories are acceptable
         
     Returns:
-        Validated Path object
+        Validated Path object (resolved to absolute path)
         
     Raises:
         ValueError: If validation fails
@@ -43,6 +46,47 @@ def validate_path(input_path: str, must_exist: bool = True,
         else:
             raise ValueError(f"Path is neither file nor directory: {path}")
     
+    return path
+
+
+def validate_file_path(input_path: str) -> Path:
+    """
+    Legacy wrapper for validate_path that preserves relative/absolute path style
+    Specifically designed for test compatibility
+    
+    Args:
+        input_path: File path string to validate
+        
+    Returns:
+        Validated Path object (preserving relative vs absolute style)
+        
+    Raises:
+        FileNotFoundError: If file doesn't exist
+        ValueError: If file is empty or invalid
+    """
+    # Create path object preserving relative/absolute style
+    path = Path(input_path)
+    
+    # Use resolve() only for validation checks
+    resolved_path = path.resolve()
+    
+    # Check existence
+    if not resolved_path.exists():
+        raise FileNotFoundError(f"File not found: {input_path}")
+    
+    # Check if it's actually a file
+    if not resolved_path.is_file():
+        raise ValueError(f"Expected file, got directory: {input_path}")
+    
+    # Check read permissions
+    if not os.access(resolved_path, os.R_OK):
+        raise ValueError(f"No read permission: {input_path}")
+    
+    # Check if file is empty
+    if resolved_path.stat().st_size == 0:
+        raise ValueError(f"File is empty: {input_path}")
+    
+    # Return original path style (relative/absolute preserved)
     return path
 
 
@@ -326,7 +370,7 @@ def get_analysis_flags(args: argparse.Namespace) -> dict:
     }
 
 
-def get_structure_pairs(args: argparse.Namespace) -> List[tuple]:
+def get_structure_pairs(args: argparse.Namespace) -> List[Tuple[Path, Path]]:
     """
     Get list of (experimental, predicted) structure file pairs
     
@@ -361,3 +405,9 @@ def get_structure_pairs(args: argparse.Namespace) -> List[tuple]:
         sys.exit(1)
     
     return pairs
+
+
+# Entry point for testing
+if __name__ == "__main__":
+    args = arg_parser()
+    print(f"Parsed arguments: {args}")

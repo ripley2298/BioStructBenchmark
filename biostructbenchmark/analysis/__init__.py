@@ -4,10 +4,13 @@ Analysis modules for structure comparison
 """
 
 # Import analysis classes
-from .bfactor import BFactorAnalyzer, BFactorComparison, BFactorStatistics
-from .secondary import SecondaryStructureAnalyzer, SecondaryStructure
-from .consensus import ConsensusAnalyzer, ConsensusError
-from .mutations import MutationAnalyzer, Mutation
+from .bfactor import *
+from .secondary import *
+from .consensus import *
+from .mutations import *
+from .curves import *
+
+__all__ = ['consensus', 'bfactor', 'secondary', 'mutations', 'curves']
 
 # Conditional import for CURVES+ (may not have executable)
 try:
