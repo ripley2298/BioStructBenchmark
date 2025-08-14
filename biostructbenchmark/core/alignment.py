@@ -296,6 +296,18 @@ def calculate_center_of_mass(atoms: List) -> np.ndarray:
 
 def calculate_rmsd(atoms1: List, atoms2: List) -> float:
     """Calculate RMSD between two sets of atoms after they've been aligned"""
+    if isinstance(atoms, np.ndarray):
+        coords1 = atoms1
+
+    else:
+        coords1 = np.array([atom.get_coord() for atom in atoms1])
+
+    if isinstance(atoms2, np.ndarray):
+        coords2 = atoms2
+
+    else:
+        coords2 = np.array([atom.get_coord() for atom in atoms2])
+
     if len(atoms1) != len(atoms2):
         warnings.warn(f"Atom count mismatch: {len(atoms1)} vs {len(atoms2)}")
         min_len = min(len(atoms1), len(atoms2))
