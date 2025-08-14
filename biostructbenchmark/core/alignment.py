@@ -453,9 +453,9 @@ def export_residue_rmsd_csv(residue_rmsds: List[ResidueRMSD],
 
     with open(output_path, 'w', newline='') as f:
         writer = csv.writer(f)
-        writer.writerow(['Residue_ID', 'Residue_Type', 'Chain_ID', 
-                        'Position', 'RMSD', 'Atom_Count', 'Molecule_Type',
-                        'Reference_Frame'])
+        writer.writerow(['residue_id', 'residue_type', 'chain_id', 
+                        'position', 'rmsd', 'atom_count', 'molecule_type',
+                        'reference_frame'])
         
         for r in residue_rmsds:
             writer.writerow([r.residue_id, r.residue_type, r.chain_id,
