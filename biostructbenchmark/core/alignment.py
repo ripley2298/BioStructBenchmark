@@ -441,15 +441,6 @@ def export_residue_rmsd_csv(residue_rmsds: List[ResidueRMSD],
     """Export per-residue RMSD data to CSV"""
     import csv
 
-    if not residue_rmsds:
-    # create empty file with headers if no data
-        with open(output_file, 'w', newline='') as f:
-            writer = csv.writer(f)
-
-            writer.writerow(['residue_id', 'residue_name', 'chain_id', 'residue_number',
-                             'rmsd_value, 'reference_position', 'sequence_type'])
-            return
-    
     with open(output_path, 'w', newline='') as f:
         writer = csv.writer(f)
         writer.writerow(['Residue_ID', 'Residue_Type', 'Chain_ID', 
@@ -462,6 +453,7 @@ def export_residue_rmsd_csv(residue_rmsds: List[ResidueRMSD],
                            reference_frame])
     
     print(f"Exported per-residue RMSD data to: {output_path}")
+
 
 
 # Backwards compatibility functions
