@@ -285,3 +285,18 @@ class StructureVisualizer:
         
         with open(output_path, 'w') as f:
             json.dump(summary, f, indent=2)
+
+#Fix for failed import bug in __init__.py in visualization.
+
+def create_structure_visualization(width: int = 800, height: int = 600):
+    """
+    Factory function to create a StructureVisualizer instance
+    
+    Args:
+        width: Width of visualization window
+        height: Height of visualization window
+        
+    Returns:
+        StructureVisualizer instance
+    """
+    return StructureVisualizer(width=width, height=height)
