@@ -371,8 +371,17 @@ def calculate_per_residue_rmsd_for_subset(observed: BioStructure,
             if len(obs_atoms) >= 2:  # Need at least 2 atoms for meaningful RMSD
                 rmsd = calculate_atom_rmsd(obs_atoms, pred_atoms)
                 
+                # Fix residue ID formatting to be more robust
+                try:
+                    res_name = obs_res.get_resname()
+                    res_num = obs_res.get_id()[1] if obs_res.get_id()[1] is not None else 0
+                    chain_id = obs_chain.get_id() if obs_chain.get_id() is not None else 'A'
+                    residue_id = f"{res_name}_{chain_id}_{res_num}"
+                except:
+                    residue_id = f"{obs_res.get_resname()}_{i}"  # Fallback
+                
                 residue_rmsd = ResidueRMSD(
-                    residue_id=f"{obs_res.get_resname()}_{obs_res.get_id()[1]}",
+                    residue_id=residue_id,
                     residue_type=obs_res.get_resname(),
                     chain_id=obs_chain.get_id(),
                     position=obs_res.get_id()[1],
@@ -384,6 +393,7 @@ def calculate_per_residue_rmsd_for_subset(observed: BioStructure,
                 residue_rmsds.append(residue_rmsd)
     
     return residue_rmsds
+
 
 
 def save_aligned_structure(structure: BioStructure, 
