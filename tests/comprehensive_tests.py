@@ -2,12 +2,12 @@
 Comprehensive test suite for BioStructBenchmark
 Tests all existing components for functionality and integration
 """
-
+import argparse
 import pytest
 import tempfile
 import numpy as np
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch, MagicMock, mock_open
 import json
 import csv
 
@@ -95,7 +95,8 @@ class TestCoreAlignment:
             transformation_matrix=np.eye(4),
             rotation_matrix=np.eye(3),
             translation_vector=np.zeros(3),
-            aligned_atom_count=100
+            aligned_atom_count=100,
+            reference_frame="full"
         )
         
         assert result.overall_rmsd == 3.2
@@ -252,7 +253,7 @@ class TestCLI:
         """Test invalid file path validation"""
         from biostructbenchmark.cli import validate_file_path
         
-        with pytest.raises(ValueError, match="Path does not exist"):
+        with pytest.raises(argparse.ArgumentTypeError):
             validate_file_path("nonexistent_file.pdb")
     
     def test_validate_file_path_valid(self, tmp_path):

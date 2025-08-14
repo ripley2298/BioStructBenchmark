@@ -30,7 +30,7 @@ def file_parser(file_path: Path) -> Optional[MMCIFParser | PDBParser]:
     
     return _parsers[suffix]
 
-
+# Validates that file exists
 def validate_file(file_path: Path) -> bool:
     """Validate a single file with a specified type"""
     parser = file_parser(file_path)
@@ -46,6 +46,11 @@ def validate_file(file_path: Path) -> bool:
             f"Error: {file_path} could not be parsed as {file_type(file_path)} file. Reason:\n{e}"
         )
         return False
+
+    except FileNotFoundError:
+        print(f"Erorr: File not found - {file_path}")
+        return False
+
     except StopIteration:
         print(f"Error: no valid model can be extracted from {file_type(file_path)}")
         return False
