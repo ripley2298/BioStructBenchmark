@@ -1,11 +1,17 @@
+"""
+tests/test_alignment.py
+Fixed test suite for alignment module
+"""
+
 import pytest
 import numpy as np
 from pathlib import Path
-from biostructbenchmark.core.alignment import calculate_rmsd, align_structures
+from biostructbenchmark.core.alignment import calculate_rmsd
+
 
 class TestAlignment:
     def test_calculate_rmsd(self):
-        """Test basic RMSD calculation"""
+        """Test basic RMSD calculation with numpy arrays"""
         coords1 = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0]])
         coords2 = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0]])
         

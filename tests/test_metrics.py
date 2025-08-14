@@ -44,7 +44,8 @@ class TestErrorComponents:
             transformation_matrix=np.eye(4),
             rotation_matrix=np.eye(3),  # Identity = no rotation
             translation_vector=np.array([1.0, 2.0, 2.0]),  # Translation of magnitude 3
-            aligned_atom_count=100
+            aligned_atom_count=100,
+            reference_frame='full'
         )
         
         error_components = decompose_structural_error(alignment_result)
@@ -69,7 +70,8 @@ class TestErrorComponents:
             transformation_matrix=np.eye(4),
             rotation_matrix=rotation_matrix,
             translation_vector=np.array([0.0, 0.0, 0.0]),
-            aligned_atom_count=100
+            aligned_atom_count=100,
+            reference_frame='full'
         )
         
         error_components = decompose_structural_error(alignment_result)
@@ -208,7 +210,8 @@ class TestComprehensiveMetrics:
             transformation_matrix=np.eye(4),
             rotation_matrix=np.eye(3),
             translation_vector=np.array([1.0, 1.0, 1.0]),
-            aligned_atom_count=20
+            aligned_atom_count=20,
+            reference_frame='full'
         )
         
         # Generate metrics

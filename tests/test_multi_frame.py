@@ -245,9 +245,9 @@ class TestIntegrationWithCLI:
     
     def test_cli_reference_frame_option(self):
         """Test that CLI properly handles reference frame options"""
-        from biostructbenchmark.cli import create_parser
+        from biostructbenchmark.cli import create_argument_parser
         
-        parser = create_parser()
+        parser = create_argument_parser()
         
         # Test default reference frame
         args = parser.parse_args(['-e', 'exp.pdb', '-p', 'pred.pdb'])

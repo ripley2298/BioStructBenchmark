@@ -236,27 +236,52 @@ class StructureVisualizer:
         if rmsd_data:
             self._save_summary(rmsd_data, output_dir / "summary.json")
     
-    def _save_summary(self, rmsd_data: List[ResidueRMSD], output_path: Path):
+    def _save_summary(self, rmsd_data: list, output_path: Path):
         """Save summary statistics as JSON"""
-        rmsds = [r.rmsd for r in rmsd_data]
-        protein = [r.rmsd for r in rmsd_data if r.molecule_type == 'protein']
-        dna = [r.rmsd for r in rmsd_data if r.molecule_type == 'dna']
+        import json
+        import numpy as np
         
-        summary = {
-            "overall": {
-                "mean": float(np.mean(rmsds)),
-                "std": float(np.std(rmsds)),
-                "min": float(np.min(rmsds)),
-                "max": float(np.max(rmsds)),
-                "count": len(rmsds)
-            },
-            "protein": {"mean": float(np.mean(protein)) if protein else None, "count": len(protein)},
-            "dna": {"mean": float(np.mean(dna)) if dna else None, "count": len(dna)},
-            "worst_residues": [
-                {"id": r.residue_id, "rmsd": r.rmsd}
-                for r in sorted(rmsd_data, key=lambda x: x.rmsd, reverse=True)[:5]
-            ]
-        }
+        # Handle empty data case
+        if not rmsd_data:
+            summary = {
+                "overall": {
+                    "mean": None,
+                    "std": None,
+                    "min": None,
+                    "max": None,
+                    "count": 0
+                },
+                "protein": {"mean": None, "count": 0},
+                "dna": {"mean": None, "count": 0},
+                "worst_residues": []
+            }
+        else:
+            # Extract RMSD values
+            rmsds = [r.rmsd for r in rmsd_data]
+            protein = [r.rmsd for r in rmsd_data if r.molecule_type == 'protein']
+            dna = [r.rmsd for r in rmsd_data if r.molecule_type == 'dna']
+            
+            summary = {
+                "overall": {
+                    "mean": float(np.mean(rmsds)) if rmsds else None,
+                    "std": float(np.std(rmsds)) if rmsds else None,
+                    "min": float(np.min(rmsds)) if rmsds else None,
+                    "max": float(np.max(rmsds)) if rmsds else None,
+                    "count": len(rmsds)
+                },
+                "protein": {
+                    "mean": float(np.mean(protein)) if protein else None,
+                    "count": len(protein)
+                },
+                "dna": {
+                    "mean": float(np.mean(dna)) if dna else None,
+                    "count": len(dna)
+                },
+                "worst_residues": [
+                    {"id": r.residue_id, "rmsd": r.rmsd}
+                    for r in sorted(rmsd_data, key=lambda x: x.rmsd, reverse=True)[:5]
+                ]
+            }
         
         with open(output_path, 'w') as f:
             json.dump(summary, f, indent=2)

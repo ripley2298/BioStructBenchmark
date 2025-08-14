@@ -294,29 +294,39 @@ def calculate_center_of_mass(atoms: List) -> np.ndarray:
     return np.mean(coords, axis=0)
 
 
-def calculate_rmsd(atoms1: List, atoms2: List) -> float:
-    """Calculate RMSD between two sets of atoms after they've been aligned"""
-    if isinstance(atoms, np.ndarray):
+def calculate_rmsd(atoms1, atoms2) -> float:
+    """
+    Calculate RMSD between two sets of atoms or coordinates
+    
+    Args:
+        atoms1: List of Bio.PDB atoms OR numpy array of coordinates
+        atoms2: List of Bio.PDB atoms OR numpy array of coordinates
+    
+    Returns:
+        RMSD value in Angstroms
+    """
+    import numpy as np
+    import warnings
+    
+    # Check if we're dealing with numpy arrays or atom objects
+    if isinstance(atoms1, np.ndarray):
         coords1 = atoms1
-
     else:
         coords1 = np.array([atom.get_coord() for atom in atoms1])
-
+    
     if isinstance(atoms2, np.ndarray):
         coords2 = atoms2
-
     else:
         coords2 = np.array([atom.get_coord() for atom in atoms2])
-
-    if len(atoms1) != len(atoms2):
-        warnings.warn(f"Atom count mismatch: {len(atoms1)} vs {len(atoms2)}")
-        min_len = min(len(atoms1), len(atoms2))
-        atoms1 = atoms1[:min_len]
-        atoms2 = atoms2[:min_len]
     
-    coords1 = np.array([atom.get_coord() for atom in atoms1])
-    coords2 = np.array([atom.get_coord() for atom in atoms2])
+    # Ensure same length
+    if len(coords1) != len(coords2):
+        warnings.warn(f"Coordinate count mismatch: {len(coords1)} vs {len(coords2)}")
+        min_len = min(len(coords1), len(coords2))
+        coords1 = coords1[:min_len]
+        coords2 = coords2[:min_len]
     
+    # Calculate RMSD
     diff = coords1 - coords2
     return np.sqrt(np.mean(np.sum(diff**2, axis=1)))
 
