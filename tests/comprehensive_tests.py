@@ -395,13 +395,6 @@ END"""
 # ============================================================================
 
 @pytest.fixture
-def mock_open():
-    """Mock file opening"""
-    from unittest.mock import mock_open as _mock_open
-    return _mock_open
-
-
-@pytest.fixture
 def sample_rmsd_data():
     """Sample RMSD data for testing"""
     from biostructbenchmark.core.alignment import ResidueRMSD
