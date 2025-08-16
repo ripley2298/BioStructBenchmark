@@ -177,56 +177,38 @@ def align_structures_by_reference_frame(observed: BioStructure,
                                        predicted: BioStructure,
                                        reference_frame: str = 'full',
                                        align_subset: str = 'full') -> AlignmentResult:
-    """
-    Align structures using specified reference frame
-    
-    Args:
-        observed: Experimental structure
-        predicted: Predicted structure
-        reference_frame: Which part to use for alignment ('full', 'protein', 'dna')
-        align_subset: Which part to calculate RMSD for after alignment
-        
-    Returns:
-        AlignmentResult with alignment details
-    """
-    # Get atoms for alignment based on reference frame
+    # ... [previous code] ...
+
+    # Get atoms for alignment (using reference_frame)
     obs_ref_atoms = get_atoms_by_molecule_type(observed, reference_frame)
     pred_ref_atoms = get_atoms_by_molecule_type(predicted, reference_frame)
     
     if not obs_ref_atoms or not pred_ref_atoms:
         raise ValueError(f"No atoms found for reference frame: {reference_frame}")
     
-    # Calculate centers of mass
+    # Calculate centers of mass (using ALL atoms in reference frame)
     obs_com = calculate_center_of_mass(obs_ref_atoms)
     pred_com = calculate_center_of_mass(pred_ref_atoms)
     
-    # Align structures using the reference atoms
+    # Align structures using ALL atoms in reference frame
     min_len = min(len(obs_ref_atoms), len(pred_ref_atoms))
     obs_ref_atoms = obs_ref_atoms[:min_len]
     pred_ref_atoms = pred_ref_atoms[:min_len]
     
     superimposer = Superimposer()
     superimposer.set_atoms(obs_ref_atoms, pred_ref_atoms)
+    superimposer.apply(predicted[0].get_atoms())  # Apply to entire predicted structure
     
-    # Apply transformation to entire predicted structure
-    superimposer.apply(predicted[0].get_atoms())
+    # Calculate RMSD using ALL atoms for the specified subset (no special case for 'full')
+    obs_calc_atoms = get_atoms_by_molecule_type(observed, align_subset)
+    pred_calc_atoms = get_atoms_by_molecule_type(predicted, align_subset)
     
-    # Now calculate RMSD for the specified subset
-    if align_subset == 'full':
-        obs_calc_atoms = obs_ref_atoms
-        pred_calc_atoms = pred_ref_atoms
-        rmsd = superimposer.rms
-    else:
-        # Get atoms for RMSD calculation
-        obs_calc_atoms = get_atoms_by_molecule_type(observed, align_subset)
-        pred_calc_atoms = get_atoms_by_molecule_type(predicted, align_subset)
-        
-        min_calc = min(len(obs_calc_atoms), len(pred_calc_atoms))
-        obs_calc_atoms = obs_calc_atoms[:min_calc]
-        pred_calc_atoms = pred_calc_atoms[:min_calc]
-        
-        # Calculate RMSD for the subset
-        rmsd = calculate_rmsd(obs_calc_atoms, pred_calc_atoms)
+    # Ensure we have matching atom counts
+    min_calc = min(len(obs_calc_atoms), len(pred_calc_atoms))
+    obs_calc_atoms = obs_calc_atoms[:min_calc]
+    pred_calc_atoms = pred_calc_atoms[:min_calc]
+    
+    rmsd = calculate_rmsd(obs_calc_atoms, pred_calc_atoms)
     
     # Calculate per-residue RMSDs for the aligned subset
     residue_rmsds = calculate_per_residue_rmsd_for_subset(
@@ -252,37 +234,40 @@ def align_structures_by_reference_frame(observed: BioStructure,
 
 
 def get_atoms_by_molecule_type(structure: BioStructure, 
-                               molecule_type: str = 'full') -> List:
+                              molecule_type: str = 'full') -> List:
     """
-    Get backbone atoms for specified molecule type
+    Get ALL atoms for specified molecule type (not just backbone)
     
     Args:
         structure: Bio.PDB Structure object
         molecule_type: 'full', 'protein', or 'dna'
         
     Returns:
-        List of atoms
+        List of ALL atoms (not just backbone)
     """
     atoms = []
-    
-    for chain in structure[0]:
-        for residue in chain:
-            if molecule_type == 'full':
-                # Get backbone atoms for both protein and DNA
-                if is_protein_residue(residue) and 'CA' in residue:
-                    atoms.append(residue['CA'])
-                elif is_dna_residue(residue) and 'P' in residue:
-                    atoms.append(residue['P'])
-                    
-            elif molecule_type == 'protein':
-                if is_protein_residue(residue) and 'CA' in residue:
-                    atoms.append(residue['CA'])
-                    
-            elif molecule_type == 'dna':
-                if is_dna_residue(residue) and 'P' in residue:
-                    atoms.append(residue['P'])
-    
+    if molecule_type == 'full':
+        # Get ALL atoms in the entire structure
+        for chain in structure[0]:
+            for residue in chain:
+                for atom in residue.get_atoms():
+                    atoms.append(atom)
+    elif molecule_type == 'protein':
+        # Get ALL atoms from protein residues
+        for chain in structure[0]:
+            for residue in chain:
+                if is_protein_residue(residue):
+                    for atom in residue.get_atoms():
+                        atoms.append(atom)
+    elif molecule_type == 'dna':
+        # Get ALL atoms from DNA residues
+        for chain in structure[0]:
+            for residue in chain:
+                if is_dna_residue(residue):
+                    for atom in residue.get_atoms():
+                        atoms.append(atom)
     return atoms
+
 
 
 def calculate_center_of_mass(atoms: List) -> np.ndarray:
@@ -331,69 +316,127 @@ def calculate_rmsd(atoms1, atoms2) -> float:
     return np.sqrt(np.mean(np.sum(diff**2, axis=1)))
 
 
+# Should this be nuked later? This may become a vestigial artifact.
 def calculate_per_residue_rmsd_for_subset(observed: BioStructure,
                                          predicted: BioStructure,
                                          molecule_type: str = 'full') -> List[ResidueRMSD]:
-    """Calculate per-residue RMSD for specified molecule type"""
+    """
+    Calculate per-residue RMSD for a specific molecule type.
+    
+    Args:
+        observed: Experimental structure
+        predicted: Predicted structure  
+        molecule_type: 'protein', 'dna', or 'full'
+        
+    Returns:
+        List of ResidueRMSD objects with RMSD values for each matched residue
+    """
     residue_rmsds = []
     
-    for obs_chain, pred_chain in zip(observed[0], predicted[0]):
-        obs_residues = list(obs_chain)
-        pred_residues = list(pred_chain)
-        
-        min_residues = min(len(obs_residues), len(pred_residues))
-        
-        for i in range(min_residues):
-            obs_res = obs_residues[i]
-            pred_res = pred_residues[i]
+    # Get atoms from both structures for the specified molecule type
+    obs_atoms = get_atoms_by_molecule_type(observed, molecule_type)
+    pred_atoms = get_atoms_by_molecule_type(predicted, molecule_type)
+    
+    # If no atoms found for this molecule type, return empty list
+    if not obs_atoms or not pred_atoms:
+        return residue_rmsds
+    
+    # Create dictionaries mapping (resname, position, chain_id) -> residue
+    # This enables identity-based matching instead of index-based matching
+    obs_residues = []
+    pred_residues = []
+    
+    # Extract all residues from observed structure that match the molecule type
+    for chain in observed[0]:
+        for residue in chain:
+            if molecule_type == 'full' or \
+               (molecule_type == 'protein' and is_protein_residue(residue)) or \
+               (molecule_type == 'dna' and is_dna_residue(residue)):
+                obs_residues.append(residue)
+    
+    # Extract all residues from predicted structure that match the molecule type
+    for chain in predicted[0]:
+        for residue in chain:
+            if molecule_type == 'full' or \
+               (molecule_type == 'protein' and is_protein_residue(residue)) or \
+               (molecule_type == 'dna' and is_dna_residue(residue)):
+                pred_residues.append(residue)
+    
+    # Create lookup dictionaries for identity-based matching
+    # Key: (residue_name, residue_position, chain_id) -> residue object
+    obs_res_dict = {}
+    for res in obs_residues:
+        key = (res.get_resname(), res.get_id()[1], res.get_parent().get_id())
+        obs_res_dict[key] = res
+    
+    pred_res_dict = {}
+    for res in pred_residues:
+        key = (res.get_resname(), res.get_id()[1], res.get_parent().get_id())
+        pred_res_dict[key] = res
+    
+    # Match residues by identity (name, position, chain) instead of index
+    matched_count = 0
+    total_count = len(obs_res_dict)
+    
+    # Iterate through all observed residues and find matches in predicted
+    for obs_key, obs_res in obs_res_dict.items():
+        if obs_key in pred_res_dict:
+            pred_res = pred_res_dict[obs_key]
+            matched_count += 1
             
-            # Skip if different residue types
-            if obs_res.get_resname() != pred_res.get_resname():
+            # Get all atoms from both residues
+            obs_atoms_list = list(obs_res.get_atoms())
+            pred_atoms_list = list(pred_res.get_atoms())
+            
+            # Skip if insufficient atoms (minimum 2 required for RMSD calculation)
+            if len(obs_atoms_list) < 2 or len(pred_atoms_list) < 2:
+                print(f"Insufficient atoms in residue {obs_res.get_id()}: {len(obs_atoms_list)} vs {len(pred_atoms_list)}")
                 continue
             
-            # Check molecule type filter
-            if molecule_type == 'protein' and not is_protein_residue(obs_res):
+            # Find matching atom names between the two residues
+            obs_atom_names = {atom.get_name(): atom for atom in obs_atoms_list}
+            pred_atom_names = {atom.get_name(): atom for atom in pred_atoms_list}
+            
+            # Get common atom names that exist in both residues
+            common_atom_names = list(obs_atom_names.keys() & pred_atom_names.keys())
+            
+            # Skip if no matching atoms found
+            if not common_atom_names:
+                print(f"No matching atoms found between residues {obs_res.get_id()}")
                 continue
-            elif molecule_type == 'dna' and not is_dna_residue(obs_res):
-                continue
             
-            # Get corresponding atoms
-            obs_atoms = []
-            pred_atoms = []
+            # Extract coordinates for common atoms only (for accurate RMSD)
+            obs_coords = np.array([obs_atom_names[name].get_coord() for name in common_atom_names])
+            pred_coords = np.array([pred_atom_names[name].get_coord() for name in common_atom_names])
             
-            atom_names = get_common_atoms(obs_res, pred_res)
+            # Calculate RMSD using the matching atoms
+            diff = obs_coords - pred_coords
+            rmsd = np.sqrt(np.mean(np.sum(diff**2, axis=1)))
             
-            for atom_name in atom_names:
-                if atom_name in obs_res and atom_name in pred_res:
-                    obs_atoms.append(obs_res[atom_name])
-                    pred_atoms.append(pred_res[atom_name])
+            # Format residue ID for display (e.g., "A:123")
+            chain_id = obs_res.get_parent().get_id()
+            position = obs_res.get_id()[1]
+            residue_id = f"{chain_id}:{position}"
             
-            if len(obs_atoms) >= 2:  # Need at least 2 atoms for meaningful RMSD
-                rmsd = calculate_atom_rmsd(obs_atoms, pred_atoms)
-                
-                # Fix residue ID formatting to be more robust
-                try:
-                    res_name = obs_res.get_resname()
-                    res_num = obs_res.get_id()[1] if obs_res.get_id()[1] is not None else 0
-                    chain_id = obs_chain.get_id() if obs_chain.get_id() is not None else 'A'
-                    residue_id = f"{res_name}_{chain_id}_{res_num}"
-                except:
-                    residue_id = f"{obs_res.get_resname()}_{i}"  # Fallback
-                
-                residue_rmsd = ResidueRMSD(
-                    residue_id=residue_id,
-                    residue_type=obs_res.get_resname(),
-                    chain_id=obs_chain.get_id(),
-                    position=obs_res.get_id()[1],
-                    rmsd=rmsd,
-                    atom_count=len(obs_atoms),
-                    molecule_type='protein' if is_protein_residue(obs_res) else 'dna'
-                )
-                
-                residue_rmsds.append(residue_rmsd)
+            # Create and store the residue RMSD result
+            residue_rmsd = ResidueRMSD(
+                residue_id=residue_id,
+                residue_type=obs_res.get_resname(),
+                chain_id=chain_id,
+                position=position,
+                rmsd=rmsd,
+                atom_count=len(common_atom_names),
+                molecule_type='protein' if is_protein_residue(obs_res) else 'dna'
+            )
+            residue_rmsds.append(residue_rmsd)
+        else:
+            # Optional: Print unmatched residues for debugging
+            print(f"Unmatched residue in observed structure: {obs_key}")
+    
+    # Print summary of matching process
+    print(f"Residue matching summary - Matched: {matched_count}/{total_count} residues")
     
     return residue_rmsds
-
 
 
 def save_aligned_structure(structure: BioStructure, 
@@ -422,27 +465,34 @@ def is_protein_residue(residue) -> bool:
 def is_dna_residue(residue) -> bool:
     """Check if residue is a DNA nucleotide"""
     dna_bases = {'DA', 'DT', 'DG', 'DC', 'A', 'T', 'G', 'C',
-                 'DI', 'DU'}  # Include modified bases
-    return residue.get_resname().strip() in dna_bases
+                 'DI', 'DU', 'OA', 'OT', 'OM', 'OB', 'OP', 'CL'}
+    # Include alternative representations and modified bases
+    res_name = residue.get_resname().strip()
+    return res_name.upper() in dna_bases or res_name.lower() in [base.lower() for base in dna_bases]
 
 
 def get_common_atoms(res1, res2) -> List[str]:
-    """Get list of common atom names between two residues"""
+    """Get list of common atom names between two residues (all atoms)"""
     atoms1 = {atom.get_name() for atom in res1}
     atoms2 = {atom.get_name() for atom in res2}
     return list(atoms1 & atoms2)
 
 
-def calculate_atom_rmsd(atoms1: List, atoms2: List) -> float:
-    """Calculate RMSD between two sets of atoms"""
-    if len(atoms1) != len(atoms2):
-        raise ValueError("Atom lists must be same length")
-    
-    coords1 = np.array([atom.get_coord() for atom in atoms1])
-    coords2 = np.array([atom.get_coord() for atom in atoms2])
-    
+def calculate_rmsd_with_matching_atoms(atoms1, atoms2) -> float:
+    """Calculate RMSD between two sets of atoms with matching names"""
+    atom_names1 = {atom.get_name(): atom for atom in atoms1}
+    atom_names2 = {atom.get_name(): atom for atom in atoms2}
+
+    common_atom_names = list(atom_names1.keys() & atom_names2.keys())
+    if not common_atom_names:
+        return 0.0
+
+    coords1 = np.array([atom_names1[name].get_coord() for name in common_atom_names])
+    coords2 = np.array([atom_names2[name].get_coord() for name in common_atom_names])
+
     diff = coords1 - coords2
     return np.sqrt(np.mean(np.sum(diff**2, axis=1)))
+
 
 
 def export_residue_rmsd_csv(residue_rmsds: List[ResidueRMSD], 

@@ -49,13 +49,13 @@ class TestCoreIO:
         missing_file = Path("nonexistent.pdb")
         assert validate_file(missing_file) == False
     
-    @pytest.mark.skipif(not Path("tests/test_data/proteins_pdb/1bom.pdb").exists(),
+    @pytest.mark.skipif(not Path("tests/data/proteins_pdb/1bom.pdb").exists(),
                        reason="Test data not available")
     def test_get_structure_valid(self):
         """Test loading valid structure"""
         from biostructbenchmark.core.io import get_structure
         
-        structure = get_structure(Path("tests/test_data/proteins_pdb/1bom.pdb"))
+        structure = get_structure(Path("tests/data/proteins_pdb/1bom.pdb"))
         assert structure is not None
         assert len(list(structure.get_models())) > 0
 
@@ -271,9 +271,9 @@ class TestCLI:
         """Test version retrieval"""
         from biostructbenchmark.cli import get_version
         
-        with patch('builtins.open', mock_open(read_data='__version__ = "1.0.0"\n')):
+        with patch('builtins.open', mock_open(read_data='__version__ = "0.0.1"\n')):
             version = get_version()
-            assert version == "1.0.0"
+            assert version == "0.0.1"
     
     @patch('sys.argv', ['biostructbenchmark', '--version'])
     def test_arg_parser_version(self):
