@@ -71,7 +71,7 @@ class StructureVisualizer:
         protein_res = ['ALA', 'ARG', 'ASN', 'ASP', 'CYS', 'GLU', 'GLN', 'GLY',
                       'HIS', 'ILE', 'LEU', 'LYS', 'MET', 'PHE', 'PRO', 'SER',
                       'THR', 'TRP', 'TYR', 'VAL']
-        # DNA residues  
+        # DNA nucleotides  
         dna_res = ['DA', 'DT', 'DG', 'DC', 'A', 'T', 'G', 'C']
         
         # Color observed (model 0)

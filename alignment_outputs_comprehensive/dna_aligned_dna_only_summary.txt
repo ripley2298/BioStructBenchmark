@@ -1,0 +1,36 @@
+============================================================
+STRUCTURE ALIGNMENT COMPREHENSIVE REPORT
+============================================================
+
+Reference Frame: dna_to_dna
+Overall RMSD: 18.037 Å
+Total Aligned Atoms: 1059
+
+PER-CHAIN RMSD VALUES:
+----------------------------------------
+
+PER-RESIDUE RMSD STATISTICS:
+----------------------------------------
+Number of residues: 44
+Mean RMSD: 12.454 Å
+Median RMSD: 12.408 Å
+Min RMSD: 7.530 Å
+Max RMSD: 16.599 Å
+Std Dev: 2.746 Å
+
+Molecule type breakdown:
+  Protein residues: 0
+  DNA nucleotides: 44
+
+RMSD Quality Assessment:
+  Residues with RMSD < 2.0 Å: 0 (0.0%)
+  Residues with RMSD < 5.0 Å: 0 (0.0%)
+
+OUTPUT FILES:
+----------------------------------------
+Experimental structure: dna_aligned_dna_only_experimental.pdb
+Aligned predicted structure: dna_aligned_dna_only_predicted_aligned.pdb
+Combined superimposition: dna_aligned_dna_only_superimposition.pdb
+Per-residue RMSD data: dna_aligned_dna_only_per_residue_rmsd.csv
+Per-chain RMSD data: dna_aligned_dna_only_per_chain_rmsd.csv
+This summary report: dna_aligned_dna_only_summary.txt

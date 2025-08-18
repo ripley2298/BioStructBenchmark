@@ -1,0 +1,2 @@
+chain_id,rmsd,atom_count,residue_count,molecule_types,reference_frame
+A,4.227833,2341,295,protein,protein_to_protein

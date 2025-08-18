@@ -338,7 +338,7 @@ class CurvesAnalyzer:
         
         bonds = []
         
-        # Get protein and DNA residues
+        # Get protein and DNA nucleotides
         protein_residues = self._get_protein_residues(structure)
         dna_residues = self._get_dna_residues(structure)
         
@@ -370,7 +370,7 @@ class CurvesAnalyzer:
         return protein_residues
     
     def _get_dna_residues(self, structure: Structure.Structure) -> List:
-        """Extract DNA residues from structure"""
+        """Extract DNA nucleotides from structure"""
         dna_residues = []
         dna_bases = {
             'DA', 'DT', 'DG', 'DC', 'A', 'T', 'G', 'C',

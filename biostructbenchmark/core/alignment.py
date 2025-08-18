@@ -1,541 +1,468 @@
+#!/usr/bin/env python3
 """
-biostructbenchmark/core/alignment.py
-Handles structure superposition with multiple reference frames for comprehensive benchmarking
+Streamlined structure alignment module for protein-DNA complexes
+Supports sequence-based correspondence and three reference frames
 """
 
-from pathlib import Path
-from typing import Optional, Dict, List, Tuple, Union
 import numpy as np
+from typing import List, Dict, Tuple, Optional
+from Bio.PDB import Structure as BioStructure, Superimposer
 from dataclasses import dataclass
-import warnings
 
-from biostructbenchmark.core.io import get_structure
-from Bio.PDB.Superimposer import Superimposer
-from Bio.PDB import Structure, PDBIO, Select
-from Bio.PDB.Structure import Structure as BioStructure
 
+# --- DATA STRUCTURES ---
 
 @dataclass
 class ResidueRMSD:
-    """Container for per-residue RMSD data"""
     residue_id: str
-    residue_type: str
+    residue_type: str 
     chain_id: str
     position: int
     rmsd: float
     atom_count: int
-    molecule_type: str  # 'protein' or 'dna'
+    molecule_type: str
+
+
+@dataclass  
+class ChainRMSD:
+    chain_id: str
+    rmsd: float
+    atom_count: int
+    residue_count: int
+    molecule_types: str
 
 
 @dataclass
 class AlignmentResult:
-    """Container for alignment results"""
     overall_rmsd: float
     residue_rmsds: List[ResidueRMSD]
+    chain_rmsds: List[ChainRMSD]
     transformation_matrix: np.ndarray
     rotation_matrix: np.ndarray
     translation_vector: np.ndarray
     aligned_atom_count: int
-    reference_frame: str  # 'full', 'protein', 'dna'
-    
-    
-@dataclass
-class MultiFrameAlignmentResult:
-    """Container for all three reference frame alignments"""
-    full_structure: AlignmentResult
-    dna_to_protein: AlignmentResult
-    dna_to_dna: AlignmentResult
-    
-    def get_summary(self) -> Dict:
-        """Generate summary statistics"""
-        return {
-            'full_structure_rmsd': self.full_structure.overall_rmsd,
-            'dna_positioning_rmsd': self.dna_to_protein.overall_rmsd,
-            'dna_standalone_rmsd': self.dna_to_dna.overall_rmsd,
-            'full_atom_count': self.full_structure.aligned_atom_count,
-            'dna_atom_count': self.dna_to_dna.aligned_atom_count
-        }
+    reference_frame: str
+    aligned_predicted_structure: BioStructure
+    reference_structure: BioStructure
 
 
-class MoleculeSelector(Select):
-    """Bio.PDB selector for filtering specific molecule types"""
-    
-    def __init__(self, molecule_type: str = 'all'):
-        """
-        Args:
-            molecule_type: 'protein', 'dna', or 'all'
-        """
-        self.molecule_type = molecule_type
-    
-    def accept_residue(self, residue):
-        """Filter residues based on molecule type"""
-        if self.molecule_type == 'all':
-            return True
-        elif self.molecule_type == 'protein':
-            return is_protein_residue(residue)
-        elif self.molecule_type == 'dna':
-            return is_dna_residue(residue)
-        return False
+# --- SEQUENCE ALIGNMENT ---
 
-
-def perform_multi_frame_alignment(observed_path: Path, 
-                                 predicted_path: Path,
-                                 output_dir: Optional[Path] = None) -> Optional[MultiFrameAlignmentResult]:
-    """
-    Perform all three reference frame alignments and optionally save aligned structures
+def align_sequences(obs_residues: List, pred_residues: List) -> List[Tuple]:
+    """Align sequences using sliding window to find optimal correspondence"""
+    obs_seq = [res.get_resname().strip() for res in obs_residues]
+    pred_seq = [res.get_resname().strip() for res in pred_residues]
     
-    Args:
-        observed_path: Path to experimental structure
-        predicted_path: Path to predicted structure  
-        output_dir: Optional directory to save aligned structures
-        
-    Returns:
-        MultiFrameAlignmentResult containing all three alignments
-    """
-    observed = get_structure(observed_path)
-    predicted = get_structure(predicted_path)
+    # Find best consecutive match
+    best_score = 0
+    best_obs_start = 0 
+    best_pred_start = 0
     
-    if observed is None or predicted is None:
-        return None
-    
-    try:
-        # Create output directory if specified
-        if output_dir:
-            output_dir = Path(output_dir)
-            output_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Alignment 1: Full structure to experimental center of mass
-        print("Performing Alignment 1: Full computational structure → experimental structure center of mass")
-        full_alignment = align_structures_by_reference_frame(
-            observed, predicted, 
-            reference_frame='full',
-            align_subset='full'
-        )
-        
-        if output_dir:
-            save_aligned_structure(
-                predicted, 
-                output_dir / "aligned_1_full_to_experimental.pdb",
-                "Full structure aligned to experimental center of mass"
-            )
-        
-        # Alignment 2: Computational DNA to experimental protein center of mass
-        print("Performing Alignment 2: Computational DNA → experimental protein center of mass")
-        dna_to_protein = align_structures_by_reference_frame(
-            observed, predicted,
-            reference_frame='protein',  # Use protein as reference
-            align_subset='dna'  # But calculate RMSD for DNA
-        )
-        
-        if output_dir:
-            save_aligned_structure(
-                predicted,
-                output_dir / "aligned_2_dna_to_protein_reference.pdb",
-                "DNA aligned using protein center of mass as reference"
-            )
-        
-        # Alignment 3: Computational DNA to experimental DNA center of mass  
-        print("Performing Alignment 3: Computational DNA → experimental DNA center of mass")
-        dna_to_dna = align_structures_by_reference_frame(
-            observed, predicted,
-            reference_frame='dna',
-            align_subset='dna'
-        )
-        
-        if output_dir:
-            save_aligned_structure(
-                predicted,
-                output_dir / "aligned_3_dna_to_dna.pdb", 
-                "DNA aligned to experimental DNA center of mass"
-            )
+    for obs_start in range(len(obs_seq)):
+        for pred_start in range(len(pred_seq)):
+            score = 0
+            obs_pos, pred_pos = obs_start, pred_start
             
-            # Also save the experimental structure for reference
-            save_aligned_structure(
-                observed,
-                output_dir / "experimental_reference.pdb",
-                "Experimental structure (reference)"
-            )
+            while (obs_pos < len(obs_seq) and pred_pos < len(pred_seq) and
+                   obs_seq[obs_pos] == pred_seq[pred_pos]):
+                score += 1
+                obs_pos += 1
+                pred_pos += 1
+            
+            if score > best_score:
+                best_score = score
+                best_obs_start = obs_start
+                best_pred_start = pred_start
+    
+    # Return aligned pairs
+    return [(obs_residues[best_obs_start + i], pred_residues[best_pred_start + i]) 
+            for i in range(best_score)]
+
+
+def create_correspondence_map(observed: BioStructure, predicted: BioStructure, 
+                            mol_type: str) -> Dict:
+    """Create sequence-based correspondence map for protein or DNA"""
+    correspondence = {}
+    
+    # Define residue types
+    if mol_type == 'protein':
+        valid_types = {'ALA','ARG','ASN','ASP','CYS','GLN','GLU','GLY','HIS','ILE',
+                      'LEU','LYS','MET','PHE','PRO','SER','THR','TRP','TYR','VAL'}
+    else:  # DNA
+        valid_types = {'DA','DT','DG','DC'}
+    
+    # Extract residues by chain
+    for chain in observed[0]:
+        chain_id = chain.get_id()
+        obs_residues = [r for r in chain if r.get_resname().strip() in valid_types]
         
-        # Print summary
-        print("\n=== Alignment Summary ===")
-        print(f"1. Full structure RMSD: {full_alignment.overall_rmsd:.2f} Å ({full_alignment.aligned_atom_count} atoms)")
-        print(f"2. DNA positioning RMSD (relative to protein): {dna_to_protein.overall_rmsd:.2f} Å")
-        print(f"3. DNA standalone RMSD: {dna_to_dna.overall_rmsd:.2f} Å ({dna_to_dna.aligned_atom_count} atoms)")
-        
-        return MultiFrameAlignmentResult(
-            full_structure=full_alignment,
-            dna_to_protein=dna_to_protein,
-            dna_to_dna=dna_to_dna
-        )
-        
-    except Exception as e:
-        print(f"Error in multi-frame alignment: {e}")
-        return None
+        if chain_id in [c.get_id() for c in predicted[0]] and obs_residues:
+            pred_chain = predicted[0][chain_id]
+            pred_residues = [r for r in pred_chain if r.get_resname().strip() in valid_types]
+            
+            if pred_residues:
+                aligned_pairs = align_sequences(obs_residues, pred_residues)
+                for obs_res, pred_res in aligned_pairs:
+                    obs_key = (chain_id, obs_res.get_id()[1])
+                    pred_key = (chain_id, pred_res.get_id()[1])
+                    correspondence[obs_key] = pred_key
+    
+    return correspondence
 
 
-def align_structures_by_reference_frame(observed: BioStructure,
-                                       predicted: BioStructure,
-                                       reference_frame: str = 'full',
-                                       align_subset: str = 'full') -> AlignmentResult:
-    # ... [previous code] ...
+# --- STRUCTURE ALIGNMENT ---
 
-    # Get atoms for alignment (using reference_frame)
-    obs_ref_atoms = get_atoms_by_molecule_type(observed, reference_frame)
-    pred_ref_atoms = get_atoms_by_molecule_type(predicted, reference_frame)
-    
-    if not obs_ref_atoms or not pred_ref_atoms:
-        raise ValueError(f"No atoms found for reference frame: {reference_frame}")
-    
-    # Calculate centers of mass (using ALL atoms in reference frame)
-    obs_com = calculate_center_of_mass(obs_ref_atoms)
-    pred_com = calculate_center_of_mass(pred_ref_atoms)
-    
-    # Align structures using ALL atoms in reference frame
-    min_len = min(len(obs_ref_atoms), len(pred_ref_atoms))
-    obs_ref_atoms = obs_ref_atoms[:min_len]
-    pred_ref_atoms = pred_ref_atoms[:min_len]
-    
-    superimposer = Superimposer()
-    superimposer.set_atoms(obs_ref_atoms, pred_ref_atoms)
-    superimposer.apply(predicted[0].get_atoms())  # Apply to entire predicted structure
-    
-    # Calculate RMSD using ALL atoms for the specified subset (no special case for 'full')
-    obs_calc_atoms = get_atoms_by_molecule_type(observed, align_subset)
-    pred_calc_atoms = get_atoms_by_molecule_type(predicted, align_subset)
-    
-    # Ensure we have matching atom counts
-    min_calc = min(len(obs_calc_atoms), len(pred_calc_atoms))
-    obs_calc_atoms = obs_calc_atoms[:min_calc]
-    pred_calc_atoms = pred_calc_atoms[:min_calc]
-    
-    rmsd = calculate_rmsd(obs_calc_atoms, pred_calc_atoms)
-    
-    # Calculate per-residue RMSDs for the aligned subset
-    residue_rmsds = calculate_per_residue_rmsd_for_subset(
-        observed, predicted, align_subset
-    )
-    
-    # Get transformation details
-    rot_matrix = superimposer.rotran[0] if hasattr(superimposer, 'rotran') else np.eye(3)
-    trans_vector = superimposer.rotran[1] if hasattr(superimposer, 'rotran') else np.zeros(3)
-    
-    return AlignmentResult(
-        overall_rmsd=rmsd,
-        residue_rmsds=residue_rmsds,
-        transformation_matrix=np.vstack([
-            np.hstack([rot_matrix, trans_vector.reshape(3, 1)]),
-            [0, 0, 0, 1]
-        ]),
-        rotation_matrix=rot_matrix,
-        translation_vector=trans_vector,
-        aligned_atom_count=len(obs_calc_atoms),
-        reference_frame=f"{reference_frame}_to_{align_subset}"
-    )
-
-
-def get_atoms_by_molecule_type(structure: BioStructure, 
-                              molecule_type: str = 'full') -> List:
-    """
-    Get ALL atoms for specified molecule type (not just backbone)
-    
-    Args:
-        structure: Bio.PDB Structure object
-        molecule_type: 'full', 'protein', or 'dna'
-        
-    Returns:
-        List of ALL atoms (not just backbone)
-    """
+def get_backbone_atoms(structure: BioStructure, correspondence: Dict, 
+                      atom_name: str, is_observed: bool = True) -> List:
+    """Extract backbone atoms (CA or P) using correspondence mapping"""
     atoms = []
-    if molecule_type == 'full':
-        # Get ALL atoms in the entire structure
-        for chain in structure[0]:
-            for residue in chain:
-                for atom in residue.get_atoms():
-                    atoms.append(atom)
-    elif molecule_type == 'protein':
-        # Get ALL atoms from protein residues
-        for chain in structure[0]:
-            for residue in chain:
-                if is_protein_residue(residue):
-                    for atom in residue.get_atoms():
-                        atoms.append(atom)
-    elif molecule_type == 'dna':
-        # Get ALL atoms from DNA residues
-        for chain in structure[0]:
-            for residue in chain:
-                if is_dna_residue(residue):
-                    for atom in residue.get_atoms():
-                        atoms.append(atom)
+    for (obs_chain, obs_pos), (pred_chain, pred_pos) in correspondence.items():
+        try:
+            if is_observed:
+                # Use observed structure positions
+                residue = structure[0][obs_chain][obs_pos]
+            else:
+                # Use predicted structure positions  
+                residue = structure[0][pred_chain][pred_pos]
+            
+            if atom_name in residue:
+                atoms.append(residue[atom_name])
+        except KeyError:
+            continue
     return atoms
 
 
+def align_structures_three_frames(observed: BioStructure, predicted: BioStructure) -> Dict:
+    """Perform alignment in three reference frames: global, DNA-centric, protein-centric"""
+    import copy
+    
+    results = {}
+    
+    # Get correspondence maps
+    protein_corr = create_correspondence_map(observed, predicted, 'protein')
+    dna_corr = create_correspondence_map(observed, predicted, 'dna')
+    
+    print(f"Correspondence: {len(protein_corr)} protein, {len(dna_corr)} DNA")
+    
+    for ref_frame in ['global', 'dna_centric', 'protein_centric']:
+        print(f"\n--- {ref_frame.upper()} ALIGNMENT ---")
+        
+        # Create copy for transformation
+        pred_copy = copy.deepcopy(predicted)
+        
+        # Get alignment atoms based on reference frame
+        if ref_frame == 'global':
+            # Use both CA and P atoms
+            obs_atoms = (get_backbone_atoms(observed, protein_corr, 'CA', is_observed=True) + 
+                        get_backbone_atoms(observed, dna_corr, 'P', is_observed=True))
+            pred_atoms = (get_backbone_atoms(pred_copy, protein_corr, 'CA', is_observed=False) +
+                         get_backbone_atoms(pred_copy, dna_corr, 'P', is_observed=False))
+            
+        elif ref_frame == 'dna_centric':
+            # Use only P atoms
+            obs_atoms = get_backbone_atoms(observed, dna_corr, 'P', is_observed=True)
+            pred_atoms = get_backbone_atoms(pred_copy, dna_corr, 'P', is_observed=False)
+            
+        else:  # protein_centric
+            # Use only CA atoms  
+            obs_atoms = get_backbone_atoms(observed, protein_corr, 'CA', is_observed=True)
+            pred_atoms = get_backbone_atoms(pred_copy, protein_corr, 'CA', is_observed=False)
+        
+        # Perform superimposition
+        if len(obs_atoms) >= 3:
+            superimposer = Superimposer()
+            superimposer.set_atoms(obs_atoms, pred_atoms)
+            superimposer.apply(pred_copy.get_atoms())
+            
+            backbone_rmsd = superimposer.rms
+            print(f"Backbone RMSD: {backbone_rmsd:.4f} Å ({len(obs_atoms)} atoms)")
+            
+            # Calculate per-residue and per-chain RMSDs
+            residue_rmsds = calculate_per_residue_rmsds(observed, pred_copy, 
+                                                      protein_corr, dna_corr)
+            chain_rmsds = calculate_per_chain_rmsds(observed, pred_copy)
+            
+            # Calculate overall RMSD using weighted average from residue RMSDs (correspondence-based)
+            total_sq_diff = 0.0
+            total_atoms = 0
+            for rmsd in residue_rmsds:
+                total_sq_diff += rmsd.atom_count * (rmsd.rmsd ** 2)
+                total_atoms += rmsd.atom_count
+            overall_rmsd = np.sqrt(total_sq_diff / total_atoms) if total_atoms > 0 else 0.0
+            
+            print(f"Overall RMSD: {overall_rmsd:.4f} Å")
+            
+            # Store result
+            results[ref_frame] = AlignmentResult(
+                overall_rmsd=overall_rmsd,
+                residue_rmsds=residue_rmsds,
+                chain_rmsds=chain_rmsds,
+                transformation_matrix=np.eye(4),
+                rotation_matrix=np.eye(3), 
+                translation_vector=np.zeros(3),
+                aligned_atom_count=len(obs_atoms),
+                reference_frame=f"{ref_frame}_alignment",
+                aligned_predicted_structure=pred_copy,
+                reference_structure=observed
+            )
+        else:
+            print(f"Insufficient atoms ({len(obs_atoms)}) for {ref_frame} alignment")
+    
+    return results
 
-def calculate_center_of_mass(atoms: List) -> np.ndarray:
-    """Calculate center of mass for a list of atoms"""
-    if not atoms:
-        return np.zeros(3)
-    
-    coords = np.array([atom.get_coord() for atom in atoms])
-    return np.mean(coords, axis=0)
 
+# --- RMSD CALCULATIONS ---
 
-def calculate_rmsd(atoms1, atoms2) -> float:
-    """
-    Calculate RMSD between two sets of atoms or coordinates
+def calculate_residue_rmsd(obs_res, pred_res) -> Optional[ResidueRMSD]:
+    """Calculate RMSD between two residues/nucleotides"""
+    obs_atoms = {atom.get_name(): atom for atom in obs_res.get_atoms()}
+    pred_atoms = {atom.get_name(): atom for atom in pred_res.get_atoms()}
     
-    Args:
-        atoms1: List of Bio.PDB atoms OR numpy array of coordinates
-        atoms2: List of Bio.PDB atoms OR numpy array of coordinates
-    
-    Returns:
-        RMSD value in Angstroms
-    """
-    import numpy as np
-    import warnings
-    
-    # Check if we're dealing with numpy arrays or atom objects
-    if isinstance(atoms1, np.ndarray):
-        coords1 = atoms1
-    else:
-        coords1 = np.array([atom.get_coord() for atom in atoms1])
-    
-    if isinstance(atoms2, np.ndarray):
-        coords2 = atoms2
-    else:
-        coords2 = np.array([atom.get_coord() for atom in atoms2])
-    
-    # Ensure same length
-    if len(coords1) != len(coords2):
-        warnings.warn(f"Coordinate count mismatch: {len(coords1)} vs {len(coords2)}")
-        min_len = min(len(coords1), len(coords2))
-        coords1 = coords1[:min_len]
-        coords2 = coords2[:min_len]
+    # Find common atoms
+    common_names = list(obs_atoms.keys() & pred_atoms.keys())
+    if len(common_names) < 2:
+        return None
     
     # Calculate RMSD
-    diff = coords1 - coords2
-    return np.sqrt(np.mean(np.sum(diff**2, axis=1)))
-
-
-# Should this be nuked later? This may become a vestigial artifact.
-def calculate_per_residue_rmsd_for_subset(observed: BioStructure,
-                                         predicted: BioStructure,
-                                         molecule_type: str = 'full') -> List[ResidueRMSD]:
-    """
-    Calculate per-residue RMSD for a specific molecule type.
+    obs_coords = np.array([obs_atoms[name].get_coord() for name in common_names])
+    pred_coords = np.array([pred_atoms[name].get_coord() for name in common_names])
+    diff = obs_coords - pred_coords
+    rmsd = np.sqrt(np.mean(np.sum(diff**2, axis=1)))
     
-    Args:
-        observed: Experimental structure
-        predicted: Predicted structure  
-        molecule_type: 'protein', 'dna', or 'full'
-        
-    Returns:
-        List of ResidueRMSD objects with RMSD values for each matched residue
-    """
+    # Create result
+    chain_id = obs_res.get_parent().get_id()
+    is_dna = obs_res.get_resname().strip() in {'DA','DT','DG','DC'}
+    
+    return ResidueRMSD(
+        residue_id=f"{chain_id}:{obs_res.get_id()[1]}",
+        residue_type=obs_res.get_resname(),
+        chain_id=chain_id,
+        position=obs_res.get_id()[1],
+        rmsd=rmsd,
+        atom_count=len(common_names),
+        molecule_type='dna' if is_dna else 'protein'
+    )
+
+
+def calculate_per_residue_rmsds(observed: BioStructure, predicted: BioStructure,
+                               protein_corr: Dict, dna_corr: Dict) -> List[ResidueRMSD]:
+    """Calculate per-residue RMSDs using sequence correspondence"""
     residue_rmsds = []
     
-    # Get atoms from both structures for the specified molecule type
-    obs_atoms = get_atoms_by_molecule_type(observed, molecule_type)
-    pred_atoms = get_atoms_by_molecule_type(predicted, molecule_type)
+    # Process protein residues
+    for (obs_chain, obs_pos), (pred_chain, pred_pos) in protein_corr.items():
+        try:
+            obs_res = observed[0][obs_chain][obs_pos]
+            pred_res = predicted[0][pred_chain][pred_pos]
+            rmsd_result = calculate_residue_rmsd(obs_res, pred_res)
+            if rmsd_result:
+                residue_rmsds.append(rmsd_result)
+        except KeyError:
+            continue
     
-    # If no atoms found for this molecule type, return empty list
-    if not obs_atoms or not pred_atoms:
-        return residue_rmsds
-    
-    # Create dictionaries mapping (resname, position, chain_id) -> residue
-    # This enables identity-based matching instead of index-based matching
-    obs_residues = []
-    pred_residues = []
-    
-    # Extract all residues from observed structure that match the molecule type
-    for chain in observed[0]:
-        for residue in chain:
-            if molecule_type == 'full' or \
-               (molecule_type == 'protein' and is_protein_residue(residue)) or \
-               (molecule_type == 'dna' and is_dna_residue(residue)):
-                obs_residues.append(residue)
-    
-    # Extract all residues from predicted structure that match the molecule type
-    for chain in predicted[0]:
-        for residue in chain:
-            if molecule_type == 'full' or \
-               (molecule_type == 'protein' and is_protein_residue(residue)) or \
-               (molecule_type == 'dna' and is_dna_residue(residue)):
-                pred_residues.append(residue)
-    
-    # Create lookup dictionaries for identity-based matching
-    # Key: (residue_name, residue_position, chain_id) -> residue object
-    obs_res_dict = {}
-    for res in obs_residues:
-        key = (res.get_resname(), res.get_id()[1], res.get_parent().get_id())
-        obs_res_dict[key] = res
-    
-    pred_res_dict = {}
-    for res in pred_residues:
-        key = (res.get_resname(), res.get_id()[1], res.get_parent().get_id())
-        pred_res_dict[key] = res
-    
-    # Match residues by identity (name, position, chain) instead of index
-    matched_count = 0
-    total_count = len(obs_res_dict)
-    
-    # Iterate through all observed residues and find matches in predicted
-    for obs_key, obs_res in obs_res_dict.items():
-        if obs_key in pred_res_dict:
-            pred_res = pred_res_dict[obs_key]
-            matched_count += 1
-            
-            # Get all atoms from both residues
-            obs_atoms_list = list(obs_res.get_atoms())
-            pred_atoms_list = list(pred_res.get_atoms())
-            
-            # Skip if insufficient atoms (minimum 2 required for RMSD calculation)
-            if len(obs_atoms_list) < 2 or len(pred_atoms_list) < 2:
-                print(f"Insufficient atoms in residue {obs_res.get_id()}: {len(obs_atoms_list)} vs {len(pred_atoms_list)}")
-                continue
-            
-            # Find matching atom names between the two residues
-            obs_atom_names = {atom.get_name(): atom for atom in obs_atoms_list}
-            pred_atom_names = {atom.get_name(): atom for atom in pred_atoms_list}
-            
-            # Get common atom names that exist in both residues
-            common_atom_names = list(obs_atom_names.keys() & pred_atom_names.keys())
-            
-            # Skip if no matching atoms found
-            if not common_atom_names:
-                print(f"No matching atoms found between residues {obs_res.get_id()}")
-                continue
-            
-            # Extract coordinates for common atoms only (for accurate RMSD)
-            obs_coords = np.array([obs_atom_names[name].get_coord() for name in common_atom_names])
-            pred_coords = np.array([pred_atom_names[name].get_coord() for name in common_atom_names])
-            
-            # Calculate RMSD using the matching atoms
-            diff = obs_coords - pred_coords
-            rmsd = np.sqrt(np.mean(np.sum(diff**2, axis=1)))
-            
-            # Format residue ID for display (e.g., "A:123")
-            chain_id = obs_res.get_parent().get_id()
-            position = obs_res.get_id()[1]
-            residue_id = f"{chain_id}:{position}"
-            
-            # Create and store the residue RMSD result
-            residue_rmsd = ResidueRMSD(
-                residue_id=residue_id,
-                residue_type=obs_res.get_resname(),
-                chain_id=chain_id,
-                position=position,
-                rmsd=rmsd,
-                atom_count=len(common_atom_names),
-                molecule_type='protein' if is_protein_residue(obs_res) else 'dna'
-            )
-            residue_rmsds.append(residue_rmsd)
-        else:
-            # Optional: Print unmatched residues for debugging
-            print(f"Unmatched residue in observed structure: {obs_key}")
-    
-    # Print summary of matching process
-    print(f"Residue matching summary - Matched: {matched_count}/{total_count} residues")
+    # Process DNA nucleotides
+    for (obs_chain, obs_pos), (pred_chain, pred_pos) in dna_corr.items():
+        try:
+            obs_res = observed[0][obs_chain][obs_pos] 
+            pred_res = predicted[0][pred_chain][pred_pos]
+            rmsd_result = calculate_residue_rmsd(obs_res, pred_res)
+            if rmsd_result:
+                residue_rmsds.append(rmsd_result)
+        except KeyError:
+            continue
     
     return residue_rmsds
 
 
-def save_aligned_structure(structure: BioStructure, 
-                          output_path: Path,
-                          description: str = "") -> None:
-    """Save aligned structure to PDB file with description"""
-    io = PDBIO()
-    io.set_structure(structure)
-    io.save(str(output_path))
+def calculate_per_chain_rmsds(observed: BioStructure, predicted: BioStructure) -> List[ChainRMSD]:
+    """Calculate per-chain RMSDs"""
+    chain_rmsds = []
     
-    print(f"Saved: {output_path}")
-    if description:
-        print(f"  Description: {description}")
+    for obs_chain in observed[0]:
+        chain_id = obs_chain.get_id()
+        if chain_id in [c.get_id() for c in predicted[0]]:
+            pred_chain = predicted[0][chain_id]
+            
+            # Get all atoms from both chains
+            obs_atoms = list(obs_chain.get_atoms())
+            pred_atoms = list(pred_chain.get_atoms())
+            
+            if obs_atoms and pred_atoms:
+                min_len = min(len(obs_atoms), len(pred_atoms))
+                obs_coords = np.array([atom.get_coord() for atom in obs_atoms[:min_len]])
+                pred_coords = np.array([atom.get_coord() for atom in pred_atoms[:min_len]])
+                
+                diff = obs_coords - pred_coords
+                rmsd = np.sqrt(np.mean(np.sum(diff**2, axis=1)))
+                
+                # Determine molecule type
+                residues = list(obs_chain.get_residues())
+                if residues:
+                    first_res = residues[0].get_resname().strip()
+                    mol_type = 'dna' if first_res in {'DA','DT','DG','DC'} else 'protein'
+                else:
+                    mol_type = 'unknown'
+                
+                chain_rmsds.append(ChainRMSD(
+                    chain_id=chain_id,
+                    rmsd=rmsd,
+                    atom_count=min_len,
+                    residue_count=len(residues),
+                    molecule_types=mol_type
+                ))
+    
+    return chain_rmsds
 
 
-def is_protein_residue(residue) -> bool:
-    """Check if residue is a standard amino acid"""
-    standard_aa = {
-        'ALA', 'ARG', 'ASN', 'ASP', 'CYS', 'GLU', 'GLN', 'GLY',
-        'HIS', 'ILE', 'LEU', 'LYS', 'MET', 'PHE', 'PRO', 'SER', 
-        'THR', 'TRP', 'TYR', 'VAL'
-    }
-    return residue.get_resname().strip() in standard_aa
+# --- MAIN ALIGNMENT FUNCTION ---
+
+def align_structures_with_structural_superimposition(observed: BioStructure,
+                                                   predicted: BioStructure,
+                                                   reference_frame: str = 'global') -> AlignmentResult:
+    """
+    Main alignment function supporting three reference frames:
+    - global: Combined protein + DNA backbone alignment
+    - dna_centric: DNA P-atom alignment for DNA quality assessment  
+    - protein_centric: Protein CA-atom alignment for interface assessment
+    """
+    results = align_structures_three_frames(observed, predicted)
+    
+    if reference_frame in results:
+        return results[reference_frame]
+    else:
+        raise ValueError(f"Reference frame '{reference_frame}' not found")
 
 
-def is_dna_residue(residue) -> bool:
-    """Check if residue is a DNA nucleotide"""
-    dna_bases = {'DA', 'DT', 'DG', 'DC', 'A', 'T', 'G', 'C',
-                 'DI', 'DU', 'OA', 'OT', 'OM', 'OB', 'OP', 'CL'}
-    # Include alternative representations and modified bases
-    res_name = residue.get_resname().strip()
-    return res_name.upper() in dna_bases or res_name.lower() in [base.lower() for base in dna_bases]
+# --- LEGACY SUPPORT ---
+
+def align_structures_kabsch_backbone(observed: BioStructure, predicted: BioStructure,
+                                    reference_frame: str = 'protein', 
+                                    align_subset: str = 'full') -> AlignmentResult:
+    """Legacy function for backward compatibility"""
+    if reference_frame == 'protein':
+        ref = 'protein_centric'
+    elif reference_frame == 'dna':
+        ref = 'dna_centric' 
+    else:
+        ref = 'global'
+        
+    return align_structures_with_structural_superimposition(observed, predicted, ref)
 
 
-def get_common_atoms(res1, res2) -> List[str]:
-    """Get list of common atom names between two residues (all atoms)"""
-    atoms1 = {atom.get_name() for atom in res1}
-    atoms2 = {atom.get_name() for atom in res2}
-    return list(atoms1 & atoms2)
+def calculate_per_residue_rmsd_for_subset(observed: BioStructure, predicted: BioStructure,
+                                        molecule_type: str = 'full') -> List[ResidueRMSD]:
+    """Legacy function for backward compatibility"""
+    protein_corr = create_correspondence_map(observed, predicted, 'protein')
+    dna_corr = create_correspondence_map(observed, predicted, 'dna')
+    return calculate_per_residue_rmsds(observed, predicted, protein_corr, dna_corr)
 
 
-def calculate_rmsd_with_matching_atoms(atoms1, atoms2) -> float:
-    """Calculate RMSD between two sets of atoms with matching names"""
-    atom_names1 = {atom.get_name(): atom for atom in atoms1}
-    atom_names2 = {atom.get_name(): atom for atom in atoms2}
+# --- LEGACY COMPATIBILITY FUNCTIONS ---
 
-    common_atom_names = list(atom_names1.keys() & atom_names2.keys())
-    if not common_atom_names:
-        return 0.0
+def align_dna_structures_with_phosphates(observed: BioStructure, predicted: BioStructure) -> Tuple:
+    """Legacy function - returns DNA correspondence and P-atom RMSD"""
+    dna_corr = create_correspondence_map(observed, predicted, 'dna')
+    
+    # Calculate P-atom RMSD without transformation
+    p_coords_obs = []
+    p_coords_pred = []
+    
+    for (obs_chain, obs_pos), (pred_chain, pred_pos) in dna_corr.items():
+        try:
+            obs_nuc = observed[0][obs_chain][obs_pos]
+            pred_nuc = predicted[0][pred_chain][pred_pos] 
+            if 'P' in obs_nuc and 'P' in pred_nuc:
+                p_coords_obs.append(obs_nuc['P'].get_coord())
+                p_coords_pred.append(pred_nuc['P'].get_coord())
+        except KeyError:
+            continue
+    
+    if p_coords_obs:
+        p_coords_obs = np.array(p_coords_obs)
+        p_coords_pred = np.array(p_coords_pred)
+        diff = p_coords_obs - p_coords_pred
+        p_rmsd = np.sqrt(np.mean(np.sum(diff**2, axis=1)))
+        print(f"Found {len(p_coords_obs)} P atom pairs for DNA nucleotide correspondence")
+        print(f"  P-atom RMSD (original coordinates): {p_rmsd:.4f} Å")
+        return dna_corr, p_rmsd, len(p_coords_obs), predicted
+    else:
+        return dna_corr, None, 0, predicted
 
-    coords1 = np.array([atom_names1[name].get_coord() for name in common_atom_names])
-    coords2 = np.array([atom_names2[name].get_coord() for name in common_atom_names])
 
-    diff = coords1 - coords2
-    return np.sqrt(np.mean(np.sum(diff**2, axis=1)))
-
+def create_dna_correspondence_map(observed: BioStructure, predicted: BioStructure) -> Dict:
+    """Legacy function - returns DNA correspondence map"""
+    return create_correspondence_map(observed, predicted, 'dna')
 
 
-def export_residue_rmsd_csv(residue_rmsds: List[ResidueRMSD], 
-                           output_path: Path,
-                           reference_frame: str = "") -> None:
-    """Export per-residue RMSD data to CSV"""
+def export_comprehensive_alignment_report(result: AlignmentResult, output_dir, prefix: str):
+    """Legacy function - simplified export"""
+    from pathlib import Path
     import csv
+    
+    output_dir = Path(output_dir)
+    output_dir.mkdir(exist_ok=True)
+    
+    # Export per-residue RMSD CSV
+    csv_path = output_dir / f"{prefix}_per_residue_rmsd.csv"
+    with open(csv_path, 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(['residue_id', 'residue_type', 'chain_id', 'position', 
+                        'rmsd', 'atom_count', 'molecule_type', 'reference_frame'])
+        for rmsd in result.residue_rmsds:
+            writer.writerow([rmsd.residue_id, rmsd.residue_type, rmsd.chain_id, 
+                           rmsd.position, rmsd.rmsd, rmsd.atom_count, 
+                           rmsd.molecule_type, result.reference_frame])
+    
+    # Export per-chain RMSD CSV
+    chain_csv_path = output_dir / f"{prefix}_per_chain_rmsd.csv"
+    with open(chain_csv_path, 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(['chain_id', 'rmsd', 'atom_count', 'residue_count', 
+                        'molecule_types', 'reference_frame'])
+        for chain in result.chain_rmsds:
+            writer.writerow([chain.chain_id, chain.rmsd, chain.atom_count,
+                           chain.residue_count, chain.molecule_types, result.reference_frame])
+    
+    # Export summary
+    summary_path = output_dir / f"{prefix}_summary.txt"
+    with open(summary_path, 'w') as f:
+        f.write("============================================================\n")
+        f.write("STRUCTURE ALIGNMENT COMPREHENSIVE REPORT\n") 
+        f.write("============================================================\n\n")
+        f.write(f"Reference Frame: {result.reference_frame}\n")
+        f.write(f"Overall RMSD: {result.overall_rmsd:.3f} Å\n")
+        f.write(f"Total Aligned Atoms: {result.aligned_atom_count}\n\n")
+        f.write("PER-CHAIN RMSD VALUES:\n")
+        f.write("----------------------------------------\n")
+        for chain in result.chain_rmsds:
+            f.write(f"Chain {chain.chain_id}: {chain.rmsd:.3f} Å "
+                   f"({chain.atom_count} atoms, {chain.residue_count} residues, "
+                   f"{chain.molecule_types})\n")
+    
+    print(f"Exported per-residue RMSD data to: {csv_path}")
+    print(f"Exported per-chain RMSD data to: {chain_csv_path}")
+    print(f"Summary report: {summary_path}")
 
+
+# --- API COMPATIBILITY FUNCTIONS ---
+
+def compare_structures(observed: BioStructure, predicted: BioStructure, 
+                      method: str = 'structural') -> AlignmentResult:
+    """Main API function for structure comparison"""
+    if method == 'structural':
+        return align_structures_with_structural_superimposition(observed, predicted, 'global')
+    else:
+        # Fallback to global alignment
+        return align_structures_with_structural_superimposition(observed, predicted, 'global')
+
+
+def export_residue_rmsd_csv(residue_rmsds: List[ResidueRMSD], output_path: str):
+    """Export residue RMSD data to CSV file"""
+    import csv
     with open(output_path, 'w', newline='') as f:
         writer = csv.writer(f)
-        writer.writerow(['residue_id', 'residue_type', 'chain_id', 
-                        'position', 'rmsd', 'atom_count', 'molecule_type',
-                        'reference_frame'])
-        
-        for r in residue_rmsds:
-            writer.writerow([r.residue_id, r.residue_type, r.chain_id,
-                           r.position, r.rmsd, r.atom_count, r.molecule_type,
-                           reference_frame])
-    
-    print(f"Exported per-residue RMSD data to: {output_path}")
-
-
-
-# Backwards compatibility functions
-def compare_structures(observed_path: Path, predicted_path: Path) -> Optional[AlignmentResult]:
-    """Legacy function - performs full structure alignment"""
-    observed = get_structure(observed_path)
-    predicted = get_structure(predicted_path)
-    
-    if observed is None or predicted is None:
-        return None
-    
-    return align_structures_by_reference_frame(observed, predicted, 'full', 'full')
-
-
-def align_structures(observed: BioStructure, predicted: BioStructure) -> Dict:
-    """Legacy function - performs basic alignment"""
-    result = align_structures_by_reference_frame(observed, predicted, 'full', 'full')
-    
-    return {
-        'rmsd': result.overall_rmsd,
-        'transformation': result.transformation_matrix,
-        'rotation': result.rotation_matrix,
-        'translation': result.translation_vector,
-        'atom_count': result.aligned_atom_count
-    }
+        writer.writerow(['residue_id', 'residue_type', 'chain_id', 'position',
+                        'rmsd', 'atom_count', 'molecule_type'])
+        for rmsd in residue_rmsds:
+            writer.writerow([rmsd.residue_id, rmsd.residue_type, rmsd.chain_id,
+                           rmsd.position, rmsd.rmsd, rmsd.atom_count, rmsd.molecule_type])

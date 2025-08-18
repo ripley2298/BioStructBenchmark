@@ -1,0 +1,4 @@
+chain_id,rmsd,atom_count,residue_count,molecule_types,reference_frame
+A,15.674773,2341,295,protein,dna_centric_alignment
+B,15.052532,444,26,dna,dna_centric_alignment
+C,9.193813,460,26,dna,dna_centric_alignment

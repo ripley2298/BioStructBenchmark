@@ -1,0 +1,13 @@
+============================================================
+STRUCTURE ALIGNMENT COMPREHENSIVE REPORT
+============================================================
+
+Reference Frame: dna_centric_alignment
+Overall RMSD: 1.196 Å
+Total Aligned Atoms: 44
+
+PER-CHAIN RMSD VALUES:
+----------------------------------------
+Chain A: 15.675 Å (2341 atoms, 295 residues, protein)
+Chain B: 15.053 Å (444 atoms, 26 residues, dna)
+Chain C: 9.194 Å (460 atoms, 26 residues, dna)
