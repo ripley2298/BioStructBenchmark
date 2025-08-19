@@ -1,4 +1,0 @@
-chain_id,rmsd,atom_count,residue_count,molecule_types,reference_frame
-B,8.540595,444,26,dna_nucleotides,protein_backbone_to_full
-C,13.601172,460,26,dna_nucleotides,protein_backbone_to_full
-A,3.4470892,2341,295,protein,protein_backbone_to_full

@@ -1,0 +1,30 @@
+Metric,Value,Unit
+Overall RMSD,1.110,Å
+Protein RMSD,0.822,Å
+DNA RMSD,1.048,Å
+Translation Error,0.000,Å
+Rotation Angle,0.0,°
+
+Residue Statistics,,
+mean_rmsd,0.851,Å
+median_rmsd,0.621,Å
+std_rmsd,0.633,Å
+min_rmsd,0.089,Å
+max_rmsd,4.121,Å
+q25_rmsd,0.411,Å
+q75_rmsd,1.148,Å
+rmsd_range,4.032,Å
+
+Worst Residues,,
+A:146,4.121,Å
+A:143,3.561,Å
+A:150,3.442,Å
+A:227,3.262,Å
+A:152,3.205,Å
+
+Best Residues,,
+A:11,0.089,Å
+A:86,0.090,Å
+A:90,0.127,Å
+A:257,0.141,Å
+A:269,0.165,Å

@@ -14,13 +14,34 @@ from dataclasses import dataclass
 
 @dataclass
 class ResidueRMSD:
-    residue_id: str
-    residue_type: str 
+    """Container for structural unit RMSD data (residues for protein, bases for DNA)"""
+    residue_id: str  # For compatibility: unit_id (residue for protein, base for DNA)
+    residue_type: str  # For compatibility: unit_type (amino acid or nucleotide type)
     chain_id: str
     position: int
     rmsd: float
     atom_count: int
-    molecule_type: str
+    molecule_type: str  # 'protein' or 'dna'
+    
+    @property
+    def unit_id(self) -> str:
+        """Proper nomenclature: unit_id (residue for protein, base for DNA)"""
+        return self.residue_id
+    
+    @property
+    def unit_type(self) -> str:
+        """Proper nomenclature: unit_type (amino acid for protein, nucleotide for DNA)"""
+        return self.residue_type
+    
+    @property
+    def is_protein(self) -> bool:
+        """True if this represents a protein residue"""
+        return self.molecule_type == 'protein'
+    
+    @property
+    def is_dna(self) -> bool:
+        """True if this represents a DNA base/nucleotide"""
+        return self.molecule_type == 'dna'
 
 
 @dataclass  
@@ -180,7 +201,7 @@ def align_structures_three_frames(observed: BioStructure, predicted: BioStructur
             # Calculate per-residue and per-chain RMSDs
             residue_rmsds = calculate_per_residue_rmsds(observed, pred_copy, 
                                                       protein_corr, dna_corr)
-            chain_rmsds = calculate_per_chain_rmsds(observed, pred_copy)
+            chain_rmsds = calculate_per_chain_rmsds_from_residues(residue_rmsds)
             
             # Calculate overall RMSD using weighted average from residue RMSDs (correspondence-based)
             total_sq_diff = 0.0
@@ -274,8 +295,48 @@ def calculate_per_residue_rmsds(observed: BioStructure, predicted: BioStructure,
     return residue_rmsds
 
 
+def calculate_per_chain_rmsds_from_residues(residue_rmsds: List[ResidueRMSD]) -> List[ChainRMSD]:
+    """Calculate per-chain RMSDs by aggregating residue-level data (post-alignment)."""
+    chain_data = {}
+    
+    for res_rmsd in residue_rmsds:
+        chain_id = res_rmsd.chain_id
+        if chain_id not in chain_data:
+            chain_data[chain_id] = {
+                'weighted_sq_sum': 0.0,
+                'total_atoms': 0,
+                'residue_count': 0,
+                'molecule_type': res_rmsd.molecule_type
+            }
+        
+        # Weighted sum for proper averaging
+        chain_data[chain_id]['weighted_sq_sum'] += res_rmsd.atom_count * (res_rmsd.rmsd ** 2)
+        chain_data[chain_id]['total_atoms'] += res_rmsd.atom_count
+        chain_data[chain_id]['residue_count'] += 1
+    
+    # Calculate final chain RMSDs
+    chain_rmsds = []
+    for chain_id, data in chain_data.items():
+        if data['total_atoms'] > 0:
+            chain_rmsd = np.sqrt(data['weighted_sq_sum'] / data['total_atoms'])
+            
+            chain_rmsds.append(ChainRMSD(
+                chain_id=chain_id,
+                rmsd=chain_rmsd,
+                atom_count=data['total_atoms'],
+                residue_count=data['residue_count'],
+                molecule_types=data['molecule_type']
+            ))
+    
+    return chain_rmsds
+
+
 def calculate_per_chain_rmsds(observed: BioStructure, predicted: BioStructure) -> List[ChainRMSD]:
-    """Calculate per-chain RMSDs"""
+    """Calculate per-chain RMSDs using raw coordinates (DEPRECATED - may give inflated values)."""
+    import warnings
+    warnings.warn("calculate_per_chain_rmsds uses raw coordinates and may give inflated RMSD values. "
+                  "Use calculate_per_chain_rmsds_from_residues instead.", DeprecationWarning, stacklevel=2)
+    
     chain_rmsds = []
     
     for obs_chain in observed[0]:
@@ -333,20 +394,7 @@ def align_structures_with_structural_superimposition(observed: BioStructure,
         raise ValueError(f"Reference frame '{reference_frame}' not found")
 
 
-# --- LEGACY SUPPORT ---
-
-def align_structures_kabsch_backbone(observed: BioStructure, predicted: BioStructure,
-                                    reference_frame: str = 'protein', 
-                                    align_subset: str = 'full') -> AlignmentResult:
-    """Legacy function for backward compatibility"""
-    if reference_frame == 'protein':
-        ref = 'protein_centric'
-    elif reference_frame == 'dna':
-        ref = 'dna_centric' 
-    else:
-        ref = 'global'
-        
-    return align_structures_with_structural_superimposition(observed, predicted, ref)
+# Legacy Functions
 
 
 def calculate_per_residue_rmsd_for_subset(observed: BioStructure, predicted: BioStructure,
@@ -402,16 +450,17 @@ def export_comprehensive_alignment_report(result: AlignmentResult, output_dir, p
     output_dir = Path(output_dir)
     output_dir.mkdir(exist_ok=True)
     
-    # Export per-residue RMSD CSV
-    csv_path = output_dir / f"{prefix}_per_residue_rmsd.csv"
+    # Export per-unit RMSD CSV with proper nomenclature
+    csv_path = output_dir / f"{prefix}_per_unit_rmsd.csv"
     with open(csv_path, 'w', newline='') as f:
         writer = csv.writer(f)
-        writer.writerow(['residue_id', 'residue_type', 'chain_id', 'position', 
-                        'rmsd', 'atom_count', 'molecule_type', 'reference_frame'])
+        writer.writerow(['unit_id', 'unit_type', 'chain_id', 'position', 
+                        'rmsd', 'atom_count', 'molecule_type', 'reference_frame', 'unit_class'])
         for rmsd in result.residue_rmsds:
-            writer.writerow([rmsd.residue_id, rmsd.residue_type, rmsd.chain_id, 
+            unit_class = 'amino_acid' if rmsd.is_protein else 'nucleotide'
+            writer.writerow([rmsd.unit_id, rmsd.unit_type, rmsd.chain_id, 
                            rmsd.position, rmsd.rmsd, rmsd.atom_count, 
-                           rmsd.molecule_type, result.reference_frame])
+                           rmsd.molecule_type, result.reference_frame, unit_class])
     
     # Export per-chain RMSD CSV
     chain_csv_path = output_dir / f"{prefix}_per_chain_rmsd.csv"
@@ -439,7 +488,7 @@ def export_comprehensive_alignment_report(result: AlignmentResult, output_dir, p
                    f"({chain.atom_count} atoms, {chain.residue_count} residues, "
                    f"{chain.molecule_types})\n")
     
-    print(f"Exported per-residue RMSD data to: {csv_path}")
+    print(f"Exported per-unit RMSD data (residues+bases) to: {csv_path}")
     print(f"Exported per-chain RMSD data to: {chain_csv_path}")
     print(f"Summary report: {summary_path}")
 
@@ -457,12 +506,14 @@ def compare_structures(observed: BioStructure, predicted: BioStructure,
 
 
 def export_residue_rmsd_csv(residue_rmsds: List[ResidueRMSD], output_path: str):
-    """Export residue RMSD data to CSV file"""
+    """Export structural unit RMSD data to CSV file with proper nomenclature"""
     import csv
     with open(output_path, 'w', newline='') as f:
         writer = csv.writer(f)
-        writer.writerow(['residue_id', 'residue_type', 'chain_id', 'position',
-                        'rmsd', 'atom_count', 'molecule_type'])
+        # Use proper scientific nomenclature in headers
+        writer.writerow(['unit_id', 'unit_type', 'chain_id', 'position',
+                        'rmsd', 'atom_count', 'molecule_type', 'unit_class'])
         for rmsd in residue_rmsds:
-            writer.writerow([rmsd.residue_id, rmsd.residue_type, rmsd.chain_id,
-                           rmsd.position, rmsd.rmsd, rmsd.atom_count, rmsd.molecule_type])
+            unit_class = 'amino_acid' if rmsd.is_protein else 'nucleotide'
+            writer.writerow([rmsd.unit_id, rmsd.unit_type, rmsd.chain_id,
+                           rmsd.position, rmsd.rmsd, rmsd.atom_count, rmsd.molecule_type, unit_class])

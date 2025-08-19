@@ -133,15 +133,15 @@ def calculate_molecule_specific_rmsd(residue_rmsds: List[ResidueRMSD]) -> Tuple[
         Tuple of (protein_rmsd, dna_rmsd)
     """
     protein_residues = [r for r in residue_rmsds if r.molecule_type == 'protein']
-    dna_residues = [r for r in residue_rmsds if r.molecule_type == 'dna']
+    dna_bases = [r for r in residue_rmsds if r.molecule_type == 'dna']
     
     protein_rmsd = 0.0
     if protein_residues:
         protein_rmsd = np.mean([r.rmsd for r in protein_residues])
     
     dna_rmsd = 0.0  
-    if dna_residues:
-        dna_rmsd = np.mean([r.rmsd for r in dna_residues])
+    if dna_bases:
+        dna_rmsd = np.mean([r.rmsd for r in dna_bases])
     
     return protein_rmsd, dna_rmsd
 
