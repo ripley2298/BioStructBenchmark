@@ -1,0 +1,11 @@
+{
+  "analysis_metadata": {
+    "experimental_structure": "/Users/mesler/Library/CloudStorage/OneDrive-FredHutchCancerCenter/Documents/IonuI_StructureML/BioSB/BioStructBenchmark/tests/data/proteins_pdb/p456_02_experimental.pdb",
+    "predicted_structure": "/Users/mesler/Library/CloudStorage/OneDrive-FredHutchCancerCenter/Documents/IonuI_StructureML/BioSB/BioStructBenchmark/tests/data/proteins_cif/p456_02_predicted.cif",
+    "analysis_timestamp": "2025-08-20T11:30:22.509733",
+    "biostructbenchmark_version": "1.0.0",
+    "analysis_type": "three_frame_alignment"
+  },
+  "alignment_summary": {
+    "global": {
+      "overall_rmsd": 

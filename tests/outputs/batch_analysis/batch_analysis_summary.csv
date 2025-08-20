@@ -1,0 +1,3 @@
+structure_pair,experimental_file,predicted_file,global_rmsd,global_atoms,protein_centric_rmsd,protein_centric_atoms,dna_centric_rmsd,dna_centric_atoms
+1bom,1bom.pdb,1bom.cif,0.0,47,0.0,47,,
+p456_02,p456_02_experimental.pdb,p456_02_predicted.cif,1.1103,339,1.1186,295,1.1963000297546387,44.0

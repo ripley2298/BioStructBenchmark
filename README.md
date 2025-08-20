@@ -558,3 +558,166 @@ MIT License - see [LICENSE](LICENSE) file for details.
 *Built with coffee, BioPython, and an unhealthy obsession with structural accuracy* 🐱
 
 For questions, issues, or suggestions, please open an issue on [GitHub](https://github.com/yourusername/biostructbenchmark).
+
+## Testing and Development
+
+### Test Organization
+
+The repository tests are organized in the `tests/` directory:
+
+```
+tests/
+├── README.md                          # Test documentation  
+├── data/                              # Test data files
+│   ├── proteins_pdb/                  # PDB format test structures
+│   ├── proteins_cif/                  # CIF format test structures
+│   ├── experimental/                  # Experimental structures
+│   └── predicted_alphafold3/          # AlphaFold predicted structures
+├── demos/                             # Demo scripts and examples
+│   ├── alignment_demo.py              # Basic alignment demonstration
+│   └── comprehensive_alignment_demo.py # Comprehensive alignment example
+├── outputs/                           # Test outputs and results
+│   ├── alignment_outputs*/            # Alignment test results
+│   ├── test_*_outputs/               # Integration test outputs
+│   └── htmlcov/                      # HTML coverage reports
+└── test_*.py                         # Test scripts
+```
+
+### Test Categories
+
+#### Unit Tests
+- `test_io.py` - I/O functionality tests
+- `test_metrics.py` - Metrics calculation tests
+- `test_alignment.py` - Core alignment tests
+- `test_visualization.py` - Visualization tests
+
+#### Integration Tests
+- `test_core_analysis_integration.py` - Core + Analysis integration
+- `test_core_integration.py` - Core module integration
+- `test_integration_comprehensive.py` - Comprehensive integration tests
+- `test_pca_integration.py` - PCA analysis integration
+- `test_dssr_integration.py` - DSSR nucleic acid analysis (requires DSSR)
+- `test_curves_setup.py` - CURVES+ setup verification
+
+#### Analysis Tests
+- `test_core_analysis_basic.py` - Basic analysis pipeline
+- `test_alignment_comprehensive.py` - Comprehensive alignment testing
+- `test_dna_p_alignment.py` - DNA-protein alignment tests
+
+### Running Tests
+
+#### All Tests
+```bash
+# From repository root
+python -m pytest tests/
+
+# With coverage
+python -m pytest tests/ --cov=biostructbenchmark --cov-report=html
+```
+
+#### Specific Test Categories
+```bash
+# Unit tests only
+python -m pytest tests/test_io.py tests/test_metrics.py
+
+# Integration tests
+python -m pytest tests/test_*integration*.py
+
+# PCA analysis tests
+python tests/test_pca_integration.py
+```
+
+#### Individual Integration Tests
+```bash
+# Core-Analysis integration
+python tests/test_core_analysis_integration.py
+
+# PCA analysis
+python tests/test_pca_integration.py
+
+# DSSR setup (requires DSSR license)
+python tests/test_dssr_integration.py
+```
+
+### Test Data
+
+#### Structure Files
+- **1bom.pdb/cif** - Small protein structure for basic tests
+- **2r4g.pdb/cif** - Medium complexity structure
+- **p456_02_experimental.pdb** - Experimental DNA-protein complex
+- **p456_02_predicted.cif** - AlphaFold predicted structure
+
+#### Invalid Files
+- `empty.cif` - Empty file for error handling tests
+- `invalid.pdb` - Malformed PDB for parser tests
+- `no_extension` - File without extension for type detection tests
+
+### Demo Scripts
+
+#### alignment_demo.py
+Basic demonstration of structure alignment:
+```bash
+python tests/demos/alignment_demo.py
+```
+
+#### comprehensive_alignment_demo.py
+Full pipeline demonstration with analysis:
+```bash
+python tests/demos/comprehensive_alignment_demo.py
+```
+
+### External Dependencies
+
+Some tests require external tools:
+
+- **DSSR** (3DNA suite) - For nucleic acid analysis
+  - Test: `test_dssr_integration.py`
+  - Setup: Run `./setup_dssr.sh` after obtaining license from https://x3dna.org/
+
+- **CURVES+** - Alternative nucleic acid analysis (deprecated in favor of DSSR)
+  - Test: `test_curves_setup.py`
+  - Setup: `./install_curves_plus.sh`
+
+### New Analysis Modules
+
+The toolkit includes several advanced analysis capabilities:
+
+#### Principal Component Analysis (PCA)
+- **Purpose**: Identify outlier structures and error patterns
+- **Module**: `biostructbenchmark.analysis.pca`
+- **Test**: `tests/test_pca_integration.py`
+- **Features**:
+  - Structure-level outlier detection
+  - Residue-level error pattern analysis
+  - Feature importance identification
+  - Comprehensive visualization plots
+
+#### DSSR Integration (Nucleic Acid Analysis)
+- **Purpose**: Modern replacement for CURVES+ using 3DNA-DSSR
+- **Module**: `biostructbenchmark.analysis.dssr`
+- **Test**: `tests/test_dssr_integration.py`
+- **Features**:
+  - Base pair and base step parameter analysis
+  - Groove geometry measurements
+  - Protein-nucleic acid contact detection
+  - JSON-based output parsing
+
+#### Enhanced Analysis Pipeline
+- **B-factor Analysis**: Compare experimental B-factors with predicted confidence
+- **Consensus Analysis**: Identify systematically mispredicted regions
+- **Mutation Analysis**: Detect and analyze structural impact of mutations
+- **Secondary Structure**: Compare predicted vs experimental secondary structure
+
+### Adding New Tests
+
+1. **Unit Tests**: Add to existing `test_*.py` files or create new ones
+2. **Integration Tests**: Follow naming pattern `test_*_integration.py`
+3. **Test Data**: Add to appropriate `data/` subdirectory
+4. **Outputs**: Will be automatically organized in `outputs/`
+
+### Notes
+
+- Tests are organized by functionality and complexity
+- All test outputs are preserved for analysis and debugging
+- Demo scripts serve as both examples and integration tests
+- External tool tests gracefully handle missing dependencies

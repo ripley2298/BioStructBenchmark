@@ -8,6 +8,7 @@ from .bfactor import BFactorAnalyzer, BFactorComparison, BFactorStatistics
 from .secondary import SecondaryStructureAnalyzer, SecondaryStructure
 from .consensus import ConsensusAnalyzer, ConsensusError
 from .mutations import MutationAnalyzer, Mutation
+from .pca import PCAAnalyzer, PCAResult, StructureOutlier, ResidueOutlier
 
 # Conditional import for CURVES+ (may not have executable)
 try:
@@ -36,6 +37,12 @@ __all__ = [
     # Mutations
     'MutationAnalyzer',
     'Mutation',
+    
+    # PCA analysis
+    'PCAAnalyzer',
+    'PCAResult',
+    'StructureOutlier',
+    'ResidueOutlier',
 ]
 
 # Add CURVES+ if available

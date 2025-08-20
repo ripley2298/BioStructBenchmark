@@ -146,3 +146,157 @@ class MutationAnalyzer:
             return 'non-conservative'  # Size change
         else:
             return 'conservative'  # Similar properties
+    
+    def identify_mutations(self, observed_structure, predicted_structure) -> List[Mutation]:
+        """
+        Identify mutations between two Bio.PDB structures
+        
+        Args:
+            observed_structure: Bio.PDB structure (observed/reference)
+            predicted_structure: Bio.PDB structure (predicted/mutated)
+            
+        Returns:
+            List of detected mutations
+        """
+        mutations = []
+        
+        # Compare residues in each chain
+        for obs_model in observed_structure:
+            for pred_model in predicted_structure:
+                obs_chains = {chain.get_id(): chain for chain in obs_model}
+                pred_chains = {chain.get_id(): chain for chain in pred_model}
+                
+                common_chains = set(obs_chains.keys()) & set(pred_chains.keys())
+                
+                for chain_id in common_chains:
+                    obs_chain = obs_chains[chain_id]
+                    pred_chain = pred_chains[chain_id]
+                    
+                    obs_residues = {r.get_id()[1]: r for r in obs_chain}
+                    pred_residues = {r.get_id()[1]: r for r in pred_chain}
+                    
+                    # Find common positions
+                    common_positions = set(obs_residues.keys()) & set(pred_residues.keys())
+                    
+                    for position in common_positions:
+                        obs_res = obs_residues[position]
+                        pred_res = pred_residues[position]
+                        
+                        obs_name = obs_res.get_resname().strip()
+                        pred_name = pred_res.get_resname().strip()
+                        
+                        # Check if mutation occurred (only for protein residues)
+                        if (obs_name != pred_name and 
+                            obs_name in self.aa_properties and 
+                            pred_name in self.aa_properties):
+                            
+                            mutation = Mutation(
+                                chain_id=chain_id,
+                                position=position,
+                                wild_type=obs_name,
+                                mutant=pred_name,
+                                local_rmsd=0.0,  # Will be calculated
+                                neighbor_rmsd=0.0,  # Will be calculated
+                                impact_score=0.0,  # Will be calculated
+                                mutation_type=self._classify_mutation(obs_name, pred_name)
+                            )
+                            mutations.append(mutation)
+                break  # Only process first model
+        
+        return mutations
+    
+    def analyze_mutation_impact(self, mutations: List[Mutation], 
+                               residue_rmsds: List[ResidueRMSD]) -> Dict:
+        """
+        Analyze the impact of mutations on structural accuracy
+        
+        Args:
+            mutations: List of detected mutations
+            residue_rmsds: Per-residue RMSD data from alignment
+            
+        Returns:
+            Dictionary with mutation impact analysis
+        """
+        if not mutations or not residue_rmsds:
+            return {'total_mutations': 0, 'avg_impact': 0.0}
+        
+        # Create RMSD lookup
+        rmsd_map = {}
+        for rmsd_data in residue_rmsds:
+            key = f"{rmsd_data.chain_id}_{rmsd_data.position}"
+            rmsd_map[key] = rmsd_data.rmsd
+        
+        # Analyze each mutation
+        mutation_impacts = []
+        for mutation in mutations:
+            mut_key = f"{mutation.chain_id}_{mutation.position}"
+            
+            if mut_key in rmsd_map:
+                local_rmsd = rmsd_map[mut_key]
+                
+                # Calculate neighbor RMSD (positions within ±2)
+                neighbor_rmsds = []
+                for offset in [-2, -1, 1, 2]:
+                    neighbor_key = f"{mutation.chain_id}_{mutation.position + offset}"
+                    if neighbor_key in rmsd_map:
+                        neighbor_rmsds.append(rmsd_map[neighbor_key])
+                
+                neighbor_rmsd = np.mean(neighbor_rmsds) if neighbor_rmsds else 0.0
+                
+                # Calculate impact score based on RMSD and mutation type
+                type_multiplier = {
+                    'radical': 3.0,
+                    'non-conservative': 2.0,
+                    'conservative': 1.0
+                }.get(mutation.mutation_type, 1.0)
+                
+                impact_score = local_rmsd * type_multiplier
+                
+                # Update mutation with calculated values
+                mutation.local_rmsd = local_rmsd
+                mutation.neighbor_rmsd = neighbor_rmsd
+                mutation.impact_score = impact_score
+                
+                mutation_impacts.append(impact_score)
+        
+        # Calculate summary statistics
+        avg_impact = np.mean(mutation_impacts) if mutation_impacts else 0.0
+        max_impact = max(mutation_impacts) if mutation_impacts else 0.0
+        
+        # Categorize mutations by impact
+        high_impact = [m for m in mutations if m.impact_score > 5.0]
+        medium_impact = [m for m in mutations if 2.0 < m.impact_score <= 5.0]
+        low_impact = [m for m in mutations if m.impact_score <= 2.0]
+        
+        return {
+            'total_mutations': len(mutations),
+            'avg_impact': avg_impact,
+            'max_impact': max_impact,
+            'high_impact_count': len(high_impact),
+            'medium_impact_count': len(medium_impact),
+            'low_impact_count': len(low_impact),
+            'by_type': self._analyze_by_mutation_type(mutations)
+        }
+    
+    def _analyze_by_mutation_type(self, mutations: List[Mutation]) -> Dict:
+        """Analyze mutations by type"""
+        type_counts = {'radical': 0, 'non-conservative': 0, 'conservative': 0}
+        type_impacts = {'radical': [], 'non-conservative': [], 'conservative': []}
+        
+        for mutation in mutations:
+            mut_type = mutation.mutation_type
+            if mut_type in type_counts:
+                type_counts[mut_type] += 1
+                type_impacts[mut_type].append(mutation.impact_score)
+        
+        # Calculate average impacts
+        type_analysis = {}
+        for mut_type in type_counts:
+            impacts = type_impacts[mut_type]
+            type_analysis[mut_type] = {
+                'count': type_counts[mut_type],
+                'avg_impact': np.mean(impacts) if impacts else 0.0,
+                'max_impact': max(impacts) if impacts else 0.0
+            }
+        
+        return type_analysis

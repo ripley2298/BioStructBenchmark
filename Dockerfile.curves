@@ -1,0 +1,45 @@
+# Dockerfile for CURVES+ analysis environment
+FROM ubuntu:22.04
+
+# Install dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    gcc \
+    g++ \
+    make \
+    wget \
+    curl \
+    python3 \
+    python3-pip \
+    gfortran \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create working directory
+WORKDIR /opt/curves_plus
+
+# Download and compile CURVES+
+# Note: You'll need to replace this with actual download URL
+# RUN wget https://example.com/curves_plus.tar.gz \
+#     && tar -xzf curves_plus.tar.gz \
+#     && cd curves_plus \
+#     && make \
+#     && cp Cur+ /usr/local/bin/
+
+# For now, create a placeholder that shows what files are needed
+RUN echo "#!/bin/bash" > /usr/local/bin/Cur+ \
+    && echo "echo 'CURVES+ placeholder - replace with actual installation'" >> /usr/local/bin/Cur+ \
+    && chmod +x /usr/local/bin/Cur+
+
+# Install Python dependencies for BioStructBenchmark
+RUN pip3 install biopython numpy pandas matplotlib scipy
+
+# Set up environment
+ENV PATH="/usr/local/bin:${PATH}"
+
+# Create mount points for data
+VOLUME ["/data", "/output"]
+
+WORKDIR /data
+
+# Default command
+CMD ["bash"]

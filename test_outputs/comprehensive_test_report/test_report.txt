@@ -1,0 +1,20 @@
+BioStructBenchmark Comprehensive Test Report
+==================================================
+
+Test Date: 2025-08-20 11:20:01
+Project Root: /Users/mesler/Library/CloudStorage/OneDrive-FredHutchCancerCenter/Documents/IonuI_StructureML/BioSB/BioStructBenchmark
+
+Test Results:
+--------------------
+imports                        PASS
+structure_loading              PASS
+alignment                      PASS
+pca_analysis                   PASS
+visualization                  PASS
+dssr_integration               PASS
+
+Summary:
+  Total Tests: 6
+  Passed: 6
+  Failed: 0
+  Success Rate: 100.0%

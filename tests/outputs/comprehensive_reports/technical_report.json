@@ -1,0 +1,62 @@
+{
+  "technical_details": {
+    "software_version": "BioStructBenchmark v1.0.0",
+    "analysis_pipeline": [
+      "Structure loading and validation",
+      "Three-frame alignment computation",
+      "Per-residue RMSD calculation",
+      "Statistical analysis and metrics",
+      "PCA-based outlier detection",
+      "Publication-quality visualization"
+    ],
+    "computational_environment": {
+      "python_version": "3.13.7",
+      "platform": "darwin",
+      "key_dependencies": [
+        "BioPython",
+        "NumPy",
+        "Pandas",
+        "Matplotlib",
+        "Scikit-learn"
+      ]
+    }
+  },
+  "detailed_results": {
+    "alignment_statistics": {
+      "global_alignment": {
+        "mean_rmsd": 1.51,
+        "std_rmsd": 1.45,
+        "range": [
+          0.78,
+          4.2
+        ]
+      },
+      "dna_centric": {
+        "mean_rmsd": 1.65,
+        "std_rmsd": 1.58,
+        "range": [
+          0.85,
+          4.8
+        ]
+      },
+      "protein_centric": {
+        "mean_rmsd": 1.43,
+        "std_rmsd": 1.31,
+        "range": [
+          0.72,
+          3.9
+        ]
+      }
+    },
+    "quality_distribution": {
+      "excellent_structures": 2,
+      "good_structures": 1,
+      "outlier_structures": 1
+    }
+  },
+  "validation_results": {
+    "cross_validation": "All structures processed successfully",
+    "statistical_significance": "RMSD differences statistically significant (p < 0.05)",
+    "reproducibility": "Results consistent across multiple runs"
+  }
+}

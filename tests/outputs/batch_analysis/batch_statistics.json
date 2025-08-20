@@ -1,0 +1,18 @@
+{
+  "total_structures": 2,
+  "analysis_timestamp": "2025-08-20T11:30:22.851841",
+  "average_global_rmsd": 0.5551499724388123,
+  "rmsd_statistics": {
+    "global": {
+      "mean": 0.5551499724388123,
+      "std": 0.5551499724388123,
+      "min": 0.0,
+      "max": 1.1102999448776245
+    }
+  },
+  "quality_distribution": {
+    "excellent": 2,
+    "good": 0,
+    "moderate": 0
+  }
+}

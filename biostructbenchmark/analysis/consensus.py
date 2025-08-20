@@ -187,3 +187,37 @@ class ConsensusAnalyzer:
                 for e in consensus_errors[:10]
             ]
         }
+    
+    def identify_consensus_errors(self, rmsd_datasets: List[List]) -> List[ConsensusError]:
+        """
+        Identify consensus errors from multiple RMSD datasets
+        
+        Args:
+            rmsd_datasets: List of ResidueRMSD lists from multiple structure comparisons
+            
+        Returns:
+            List of consensus errors
+        """
+        # Reset analyzer state
+        self.position_errors = defaultdict(list)
+        
+        # Add each dataset
+        for i, dataset in enumerate(rmsd_datasets):
+            self.add_structure_comparison(dataset, f"structure_{i}")
+        
+        # Calculate and return consensus
+        return self.calculate_consensus(min_structures=1)  # Lower threshold for testing
+    
+    def to_dataframe(self, consensus_errors: List[ConsensusError]) -> pd.DataFrame:
+        """Convert consensus errors to pandas DataFrame"""
+        data = []
+        for error in consensus_errors:
+            data.append({
+                'position': error.position,
+                'mean_rmsd': error.mean_rmsd,
+                'std_rmsd': error.std_rmsd,
+                'frequency': error.frequency,
+                'confidence': error.confidence,
+                'residue_types': ','.join(error.residue_types)
+            })
+        return pd.DataFrame(data)

@@ -128,3 +128,69 @@ class BFactorAnalyzer:
             high_confidence_accuracy=high_acc,
             low_confidence_accuracy=low_acc
         )
+    
+    def analyze_structures(self, observed_structure, predicted_structure) -> List[BFactorComparison]:
+        """Analyze B-factors between two Bio.PDB structures"""
+        comparisons = []
+        
+        # Extract B-factors from structures directly
+        obs_bfactors = {}
+        pred_bfactors = {}
+        
+        # Get B-factors from observed structure
+        for model in observed_structure:
+            for chain in model:
+                chain_id = chain.get_id()
+                for residue in chain:
+                    residue_bfactors = [atom.get_bfactor() for atom in residue]
+                    avg_bfactor = np.mean(residue_bfactors)
+                    residue_key = f"{chain_id}_{residue.get_id()[1]}"
+                    obs_bfactors[residue_key] = avg_bfactor
+        
+        # Get B-factors from predicted structure (pLDDT values)
+        for model in predicted_structure:
+            for chain in model:
+                chain_id = chain.get_id()
+                for residue in chain:
+                    residue_bfactors = [atom.get_bfactor() for atom in residue]
+                    avg_bfactor = np.mean(residue_bfactors)
+                    residue_key = f"{chain_id}_{residue.get_id()[1]}"
+                    pred_bfactors[residue_key] = avg_bfactor
+        
+        # Find common residues and create comparisons
+        common_residues = set(obs_bfactors.keys()) & set(pred_bfactors.keys())
+        
+        for res_key in common_residues:
+            chain_id, position = res_key.split('_')
+            
+            comparison = BFactorComparison(
+                residue_id=res_key,
+                chain_id=chain_id,
+                position=int(position),
+                experimental_bfactor=obs_bfactors[res_key],
+                predicted_confidence=pred_bfactors[res_key],
+                difference=pred_bfactors[res_key] - obs_bfactors[res_key],
+                normalized_bfactor=0.0
+            )
+            comparisons.append(comparison)
+        
+        return comparisons
+    
+    def calculate_statistics(self, comparisons: List[BFactorComparison]) -> BFactorStatistics:
+        """Calculate statistics from B-factor comparisons"""
+        return self._calculate_statistics(comparisons)
+    
+    def to_dataframe(self, comparisons: List[BFactorComparison]) -> pd.DataFrame:
+        """Convert B-factor comparisons to pandas DataFrame"""
+        data = []
+        for comp in comparisons:
+            data.append({
+                'residue_id': comp.residue_id,
+                'chain_id': comp.chain_id,
+                'position': comp.position,
+                'experimental_bfactor': comp.experimental_bfactor,
+                'predicted_confidence': comp.predicted_confidence,
+                'difference': comp.difference,
+                'normalized_bfactor': comp.normalized_bfactor
+            })
+        return pd.DataFrame(data)

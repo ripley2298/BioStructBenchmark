@@ -24,6 +24,7 @@ if MATPLOTLIB_AVAILABLE:
         from .residue_plots import ResidueVisualizer, create_residue_report, quick_residue_plot
         from .plots import PublicationPlotter, create_publication_report
         from .structure import StructureVisualizer, create_structure_visualization
+        from .pca_plots import PCAVisualizer
         _viz_available = True
     except ImportError as e:
         warnings.warn(f"Some visualization modules failed to import: {e}")
@@ -31,11 +32,13 @@ if MATPLOTLIB_AVAILABLE:
         ResidueVisualizer = None
         create_residue_report = None
         quick_residue_plot = None
+        PCAVisualizer = None
 else:
     _viz_available = False
     ResidueVisualizer = None
     create_residue_report = None
     quick_residue_plot = None
+    PCAVisualizer = None
 
 # Conditional CURVES+ visualization
 try:
@@ -53,7 +56,8 @@ if _viz_available:
     __all__.extend([
         'ResidueVisualizer',
         'create_residue_report', 
-        'quick_residue_plot'
+        'quick_residue_plot',
+        'PCAVisualizer'
     ])
 
 if _curves_viz_available:
