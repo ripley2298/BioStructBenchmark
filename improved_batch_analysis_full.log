@@ -1,0 +1,799 @@
+/Users/mesler/Library/CloudStorage/OneDrive-FredHutchCancerCenter/Documents/IonuI_StructureML/BioSB/BioStructBenchmark/biostructbenchmark/visualization/__init__.py:30: UserWarning: Some visualization modules failed to import: No module named 'seaborn'
+  warnings.warn(f"Some visualization modules failed to import: {e}")
+BioStructBenchmark Real Data Batch Analysis
+==================================================
+Experimental structures: /Users/mesler/Documents/IonuI_StructureML/experimental
+Predicted structures: /Users/mesler/Documents/IonuI_StructureML/predicted_alphafold3
+Output directory: /Users/mesler/Library/CloudStorage/OneDrive-FredHutchCancerCenter/Documents/IonuI_StructureML/BioSB/BioStructBenchmark/tests/outputs/real_data_batch_analysis
+Found 22 experimental structures
+✓ Paired: p456_26_experimental.pdb <-> p456_26_alphafold.cif
+✓ Paired: p456_18_experimental.pdb <-> p456_18_alphafold.cif
+✓ Paired: p456_07_experimental.pdb <-> p456_07_alphafold3.cif
+✓ Paired: p456_03_experimental.pdb <-> p456_03_alphafold3.cif
+✓ Paired: p456_22_experimental.pdb <-> p456_22_alphafold.cif
+✓ Paired: p456_08_experimental.pdb <-> p456_08_alphafold3.cif
+✓ Paired: p456_17_experimental.pdb <-> p456_17_alphafold.cif
+✓ Paired: p456_06_experimental.pdb <-> p456_06_alphafold3.cif
+✓ Paired: p456_19_experimental.pdb <-> p456_19_alphafold.cif
+✓ Paired: p456_23_experimental.pdb <-> p456_23_alphafold.cif
+✓ Paired: p456_02_experimental.pdb <-> p456_02_alphafold3.cif
+✓ Paired: p456_16_experimental.pdb <-> p456_16_alphafold.cif
+✓ Paired: p456_09_experimental.pdb <-> p456_09_alphafold3.cif
+✓ Paired: p456_05_experimental.pdb <-> p456_05_alphafold3.cif
+✓ Paired: p456_24_experimental.pdb <-> p456_24_alphafold.cif
+✓ Paired: p456_15_experimental.pdb <-> p456_15_alphafold3.cif
+✓ Paired: p456_20_experimental.pdb <-> p456_20_alphafold.cif
+✓ Paired: p456_25_experimental.pdb <-> p456_25_alphafold.cif
+✓ Paired: p456_04_experimental.pdb <-> p456_04_alphafold3.cif
+✓ Paired: p456_10_experimental.pdb <-> p456_10_alphafold3.cif
+⚠ No match for p456_14_experimental.pdb
+✓ Paired: p456_21_experimental.pdb <-> p456_21_alphafold.cif
+
+Total structure pairs found: 21
+Output directory: /Users/mesler/Library/CloudStorage/OneDrive-FredHutchCancerCenter/Documents/IonuI_StructureML/BioSB/BioStructBenchmark/tests/outputs/real_data_batch_analysis
+
+=== PROCESSING 21 STRUCTURE PAIRS ===
+
+[1/21] Analyzing p456_26...
+Gap-tolerant alignment: Obs positions 1-170 (170 residues)
+                       Pred positions 1-170 (170 residues)
+Direct position matches: 170
+Using direct position matching: 170 pairs
+Gap-tolerant alignment: Obs positions 1-23 (23 residues)
+                       Pred positions 1-21 (21 residues)
+Direct position matches: 21
+Using direct position matching: 21 pairs
+Gap-tolerant alignment: Obs positions -1-21 (23 residues)
+                       Pred positions 1-21 (21 residues)
+Direct position matches: 21
+Using direct position matching: 21 pairs
+Correspondence: 170 protein, 42 DNA
+
+--- GLOBAL ALIGNMENT ---
+Backbone RMSD: 0.7629 Å (170 atoms)
+Overall RMSD: 1.1167 Å
+
+--- DNA_CENTRIC ALIGNMENT ---
+Insufficient atoms (0) for dna_centric alignment
+
+--- PROTEIN_CENTRIC ALIGNMENT ---
+Backbone RMSD: 0.7629 Å (170 atoms)
+Overall RMSD: 1.1167 Å
+  ✓ Global RMSD: 1.117 Å (excellent)
+  ✗ Error: Object of type bool is not JSON serializable
+
+[2/21] Analyzing p456_18...
+Gap-tolerant alignment: Obs positions 9-301 (293 residues)
+                       Pred positions 1-300 (300 residues)
+Direct position matches: 11
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[0:293] → pred[6:299] (293 residues)
+Sequence-based alignment: 293 pairs from 1 segments
+Gap-tolerant alignment: Obs positions 1-26 (26 residues)
+                       Pred positions 1-22 (22 residues)
+Direct position matches: 7
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[0:22] → pred[0:22] (22 residues)
+Sequence-based alignment: 22 pairs from 1 segments
+Gap-tolerant alignment: Obs positions 1-26 (26 residues)
+                       Pred positions 1-22 (22 residues)
+Direct position matches: 3
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[0:5] → pred[2:7] (5 residues)
+Found alignment segment: obs[5:10] → pred[11:16] (5 residues)
+Found alignment segment: obs[10:15] → pred[16:21] (5 residues)
+Sequence-based alignment: 15 pairs from 3 segments
+Correspondence: 293 protein, 35 DNA
+
+--- GLOBAL ALIGNMENT ---
+Backbone RMSD: 5.4671 Å (327 atoms)
+Overall RMSD: 8.0992 Å
+
+--- DNA_CENTRIC ALIGNMENT ---
+Backbone RMSD: 14.5958 Å (34 atoms)
+Overall RMSD: 9.9205 Å
+
+--- PROTEIN_CENTRIC ALIGNMENT ---
+Backbone RMSD: 0.9829 Å (293 atoms)
+Overall RMSD: 8.3882 Å
+  ✓ Global RMSD: 8.099 Å (poor)
+  ✗ Error: Object of type bool is not JSON serializable
+
+[3/21] Analyzing p456_07...
+Gap-tolerant alignment: Obs positions 4-300 (289 residues)
+                       Pred positions 1-300 (300 residues)
+Direct position matches: 289
+Using direct position matching: 289 pairs
+Gap-tolerant alignment: Obs positions 1-26 (26 residues)
+                       Pred positions 1-22 (22 residues)
+Direct position matches: 4
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[0:5] → pred[14:19] (5 residues)
+Found alignment segment: obs[5:17] → pred[1:13] (12 residues)
+Sequence-based alignment: 17 pairs from 2 segments
+Gap-tolerant alignment: Obs positions 1-26 (26 residues)
+                       Pred positions 1-22 (22 residues)
+Direct position matches: 6
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[0:5] → pred[4:9] (5 residues)
+Found alignment segment: obs[8:13] → pred[14:19] (5 residues)
+Sequence-based alignment: 10 pairs from 2 segments
+Correspondence: 289 protein, 26 DNA
+
+--- GLOBAL ALIGNMENT ---
+Backbone RMSD: 8.7617 Å (313 atoms)
+Overall RMSD: 14.6386 Å
+
+--- DNA_CENTRIC ALIGNMENT ---
+Backbone RMSD: 26.2177 Å (24 atoms)
+Overall RMSD: 36.8944 Å
+
+--- PROTEIN_CENTRIC ALIGNMENT ---
+Backbone RMSD: 0.9619 Å (289 atoms)
+Overall RMSD: 14.6686 Å
+  ✓ Global RMSD: 14.639 Å (poor)
+  ✗ Error: Object of type bool is not JSON serializable
+
+[4/21] Analyzing p456_03...
+Gap-tolerant alignment: Obs positions 6-300 (295 residues)
+                       Pred positions 1-300 (300 residues)
+Direct position matches: 295
+Using direct position matching: 295 pairs
+Gap-tolerant alignment: Obs positions 1-26 (26 residues)
+                       Pred positions 1-22 (22 residues)
+Direct position matches: 4
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[0:5] → pred[13:18] (5 residues)
+Found alignment segment: obs[5:16] → pred[1:12] (11 residues)
+Sequence-based alignment: 16 pairs from 2 segments
+Gap-tolerant alignment: Obs positions 1-26 (26 residues)
+                       Pred positions 1-22 (22 residues)
+Direct position matches: 5
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[0:5] → pred[5:10] (5 residues)
+Found alignment segment: obs[9:14] → pred[0:5] (5 residues)
+Found alignment segment: obs[14:23] → pred[11:20] (9 residues)
+Sequence-based alignment: 19 pairs from 3 segments
+Correspondence: 295 protein, 32 DNA
+
+--- GLOBAL ALIGNMENT ---
+Backbone RMSD: 8.4775 Å (325 atoms)
+Overall RMSD: 13.3159 Å
+
+--- DNA_CENTRIC ALIGNMENT ---
+Backbone RMSD: 26.1863 Å (30 atoms)
+Overall RMSD: 17.7806 Å
+
+--- PROTEIN_CENTRIC ALIGNMENT ---
+Backbone RMSD: 0.6917 Å (295 atoms)
+Overall RMSD: 13.4341 Å
+  ✓ Global RMSD: 13.316 Å (poor)
+  ✗ Error: Object of type bool is not JSON serializable
+
+[5/21] Analyzing p456_22...
+Gap-tolerant alignment: Obs positions 8-301 (291 residues)
+                       Pred positions 1-300 (300 residues)
+Direct position matches: 12
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[0:148] → pred[5:153] (148 residues)
+Found alignment segment: obs[148:180] → pred[154:186] (32 residues)
+Found alignment segment: obs[180:291] → pred[188:299] (111 residues)
+Sequence-based alignment: 291 pairs from 3 segments
+Gap-tolerant alignment: Obs positions 1-25 (25 residues)
+                       Pred positions 1-22 (22 residues)
+Direct position matches: 8
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[0:22] → pred[0:22] (22 residues)
+Sequence-based alignment: 22 pairs from 1 segments
+Gap-tolerant alignment: Obs positions 1-25 (25 residues)
+                       Pred positions 1-22 (22 residues)
+Direct position matches: 3
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[1:23] → pred[0:22] (22 residues)
+Sequence-based alignment: 22 pairs from 1 segments
+Correspondence: 291 protein, 44 DNA
+
+--- GLOBAL ALIGNMENT ---
+Backbone RMSD: 0.5997 Å (335 atoms)
+Overall RMSD: 0.9616 Å
+
+--- DNA_CENTRIC ALIGNMENT ---
+Backbone RMSD: 0.6226 Å (44 atoms)
+Overall RMSD: 1.0187 Å
+
+--- PROTEIN_CENTRIC ALIGNMENT ---
+Backbone RMSD: 0.5787 Å (291 atoms)
+Overall RMSD: 0.9655 Å
+  ✓ Global RMSD: 0.962 Å (excellent)
+  ✗ Error: Object of type bool is not JSON serializable
+
+[6/21] Analyzing p456_08...
+Gap-tolerant alignment: Obs positions 8-300 (293 residues)
+                       Pred positions 1-300 (300 residues)
+Direct position matches: 293
+Using direct position matching: 293 pairs
+Gap-tolerant alignment: Obs positions 1-26 (26 residues)
+                       Pred positions 1-22 (22 residues)
+Direct position matches: 7
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[2:24] → pred[0:22] (22 residues)
+Sequence-based alignment: 22 pairs from 1 segments
+Gap-tolerant alignment: Obs positions 1-26 (26 residues)
+                       Pred positions 1-22 (22 residues)
+Direct position matches: 5
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[0:6] → pred[5:11] (6 residues)
+Found alignment segment: obs[8:13] → pred[11:16] (5 residues)
+Found alignment segment: obs[16:21] → pred[16:21] (5 residues)
+Sequence-based alignment: 16 pairs from 3 segments
+Correspondence: 293 protein, 38 DNA
+
+--- GLOBAL ALIGNMENT ---
+Backbone RMSD: 4.6188 Å (330 atoms)
+Overall RMSD: 6.8033 Å
+
+--- DNA_CENTRIC ALIGNMENT ---
+Backbone RMSD: 12.5778 Å (37 atoms)
+Overall RMSD: 7.8529 Å
+
+--- PROTEIN_CENTRIC ALIGNMENT ---
+Backbone RMSD: 0.7002 Å (293 atoms)
+Overall RMSD: 6.9683 Å
+  ✓ Global RMSD: 6.803 Å (poor)
+  ✗ Error: Object of type bool is not JSON serializable
+
+[7/21] Analyzing p456_17...
+Gap-tolerant alignment: Obs positions 6-301 (296 residues)
+                       Pred positions 1-300 (300 residues)
+Direct position matches: 12
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[0:296] → pred[3:299] (296 residues)
+Sequence-based alignment: 296 pairs from 1 segments
+Gap-tolerant alignment: Obs positions 1-26 (26 residues)
+                       Pred positions 1-22 (22 residues)
+Direct position matches: 8
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[0:22] → pred[0:22] (22 residues)
+Sequence-based alignment: 22 pairs from 1 segments
+Gap-tolerant alignment: Obs positions 1-26 (26 residues)
+                       Pred positions 1-22 (22 residues)
+Direct position matches: 3
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[1:23] → pred[0:22] (22 residues)
+Sequence-based alignment: 22 pairs from 1 segments
+Correspondence: 296 protein, 44 DNA
+
+--- GLOBAL ALIGNMENT ---
+Backbone RMSD: 0.7806 Å (340 atoms)
+Overall RMSD: 1.0513 Å
+
+--- DNA_CENTRIC ALIGNMENT ---
+Backbone RMSD: 0.7724 Å (44 atoms)
+Overall RMSD: 1.1308 Å
+
+--- PROTEIN_CENTRIC ALIGNMENT ---
+Backbone RMSD: 0.7426 Å (296 atoms)
+Overall RMSD: 1.0664 Å
+  ✓ Global RMSD: 1.051 Å (excellent)
+  ✗ Error: Object of type bool is not JSON serializable
+
+[8/21] Analyzing p456_06...
+Gap-tolerant alignment: Obs positions 5-300 (293 residues)
+                       Pred positions 1-300 (300 residues)
+Direct position matches: 293
+Using direct position matching: 293 pairs
+Gap-tolerant alignment: Obs positions 1-26 (26 residues)
+                       Pred positions 1-22 (22 residues)
+Direct position matches: 4
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[2:24] → pred[0:22] (22 residues)
+Sequence-based alignment: 22 pairs from 1 segments
+Gap-tolerant alignment: Obs positions 1-26 (26 residues)
+                       Pred positions 1-22 (22 residues)
+Direct position matches: 6
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[1:23] → pred[0:22] (22 residues)
+Sequence-based alignment: 22 pairs from 1 segments
+Correspondence: 293 protein, 44 DNA
+
+--- GLOBAL ALIGNMENT ---
+Backbone RMSD: 1.2106 Å (337 atoms)
+Overall RMSD: 1.4933 Å
+
+--- DNA_CENTRIC ALIGNMENT ---
+Backbone RMSD: 2.1942 Å (44 atoms)
+Overall RMSD: 2.6536 Å
+
+--- PROTEIN_CENTRIC ALIGNMENT ---
+Backbone RMSD: 0.8122 Å (293 atoms)
+Overall RMSD: 1.5074 Å
+  ✓ Global RMSD: 1.493 Å (excellent)
+  ✗ Error: Object of type bool is not JSON serializable
+
+[9/21] Analyzing p456_19...
+Gap-tolerant alignment: Obs positions 9-301 (292 residues)
+                       Pred positions 1-300 (300 residues)
+Direct position matches: 10
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[0:146] → pred[6:152] (146 residues)
+Found alignment segment: obs[146:292] → pred[153:299] (146 residues)
+Sequence-based alignment: 292 pairs from 2 segments
+Gap-tolerant alignment: Obs positions 1-26 (26 residues)
+                       Pred positions 1-22 (22 residues)
+Direct position matches: 10
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[0:22] → pred[0:22] (22 residues)
+Sequence-based alignment: 22 pairs from 1 segments
+Gap-tolerant alignment: Obs positions 1-26 (26 residues)
+                       Pred positions 1-22 (22 residues)
+Direct position matches: 5
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[0:5] → pred[10:15] (5 residues)
+Found alignment segment: obs[5:12] → pred[2:9] (7 residues)
+Found alignment segment: obs[16:23] → pred[15:22] (7 residues)
+Sequence-based alignment: 19 pairs from 3 segments
+Correspondence: 292 protein, 40 DNA
+
+--- GLOBAL ALIGNMENT ---
+Backbone RMSD: 4.1371 Å (331 atoms)
+Overall RMSD: 7.2912 Å
+
+--- DNA_CENTRIC ALIGNMENT ---
+Backbone RMSD: 11.1604 Å (39 atoms)
+Overall RMSD: 8.2790 Å
+
+--- PROTEIN_CENTRIC ALIGNMENT ---
+Backbone RMSD: 0.8395 Å (292 atoms)
+Overall RMSD: 7.3657 Å
+  ✓ Global RMSD: 7.291 Å (poor)
+  ✗ Error: Object of type bool is not JSON serializable
+
+[10/21] Analyzing p456_23...
+Gap-tolerant alignment: Obs positions 8-301 (292 residues)
+                       Pred positions 1-300 (300 residues)
+Direct position matches: 10
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[0:148] → pred[5:153] (148 residues)
+Found alignment segment: obs[148:292] → pred[155:299] (144 residues)
+Sequence-based alignment: 292 pairs from 2 segments
+Gap-tolerant alignment: Obs positions 1-25 (25 residues)
+                       Pred positions 1-22 (22 residues)
+Direct position matches: 10
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[0:22] → pred[0:22] (22 residues)
+Sequence-based alignment: 22 pairs from 1 segments
+Gap-tolerant alignment: Obs positions 1-25 (25 residues)
+                       Pred positions 1-22 (22 residues)
+Direct position matches: 5
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[0:5] → pred[16:21] (5 residues)
+Found alignment segment: obs[5:18] → pred[2:15] (13 residues)
+Sequence-based alignment: 18 pairs from 2 segments
+Correspondence: 292 protein, 39 DNA
+
+--- GLOBAL ALIGNMENT ---
+Backbone RMSD: 7.0279 Å (330 atoms)
+Overall RMSD: 11.4226 Å
+
+--- DNA_CENTRIC ALIGNMENT ---
+Backbone RMSD: 19.4140 Å (38 atoms)
+Overall RMSD: 13.5459 Å
+
+--- PROTEIN_CENTRIC ALIGNMENT ---
+Backbone RMSD: 0.7568 Å (292 atoms)
+Overall RMSD: 11.5263 Å
+  ✓ Global RMSD: 11.423 Å (poor)
+  ✗ Error: Object of type bool is not JSON serializable
+
+[11/21] Analyzing p456_02...
+Gap-tolerant alignment: Obs positions 6-300 (295 residues)
+                       Pred positions 1-300 (300 residues)
+Direct position matches: 295
+Using direct position matching: 295 pairs
+Gap-tolerant alignment: Obs positions 1-26 (26 residues)
+                       Pred positions 1-22 (22 residues)
+Direct position matches: 4
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[0:5] → pred[13:18] (5 residues)
+Found alignment segment: obs[5:16] → pred[1:12] (11 residues)
+Sequence-based alignment: 16 pairs from 2 segments
+Gap-tolerant alignment: Obs positions 1-26 (26 residues)
+                       Pred positions 1-22 (22 residues)
+Direct position matches: 5
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[0:5] → pred[5:10] (5 residues)
+Found alignment segment: obs[9:14] → pred[0:5] (5 residues)
+Found alignment segment: obs[14:23] → pred[11:20] (9 residues)
+Sequence-based alignment: 19 pairs from 3 segments
+Correspondence: 295 protein, 32 DNA
+
+--- GLOBAL ALIGNMENT ---
+Backbone RMSD: 8.4546 Å (325 atoms)
+Overall RMSD: 13.1810 Å
+
+--- DNA_CENTRIC ALIGNMENT ---
+Backbone RMSD: 26.1600 Å (30 atoms)
+Overall RMSD: 17.4650 Å
+
+--- PROTEIN_CENTRIC ALIGNMENT ---
+Backbone RMSD: 0.6525 Å (295 atoms)
+Overall RMSD: 13.2923 Å
+  ✓ Global RMSD: 13.181 Å (poor)
+  ✗ Error: Object of type bool is not JSON serializable
+
+[12/21] Analyzing p456_16...
+Gap-tolerant alignment: Obs positions 8-301 (294 residues)
+                       Pred positions 1-300 (300 residues)
+Direct position matches: 14
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[0:294] → pred[5:299] (294 residues)
+Sequence-based alignment: 294 pairs from 1 segments
+Gap-tolerant alignment: Obs positions 1-26 (26 residues)
+                       Pred positions 1-22 (22 residues)
+Direct position matches: 8
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[0:22] → pred[0:22] (22 residues)
+Sequence-based alignment: 22 pairs from 1 segments
+Gap-tolerant alignment: Obs positions 1-26 (26 residues)
+                       Pred positions 1-22 (22 residues)
+Direct position matches: 3
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[1:23] → pred[0:22] (22 residues)
+Sequence-based alignment: 22 pairs from 1 segments
+Correspondence: 294 protein, 44 DNA
+
+--- GLOBAL ALIGNMENT ---
+Backbone RMSD: 0.7811 Å (338 atoms)
+Overall RMSD: 1.0397 Å
+
+--- DNA_CENTRIC ALIGNMENT ---
+Backbone RMSD: 0.6814 Å (44 atoms)
+Overall RMSD: 1.0428 Å
+
+--- PROTEIN_CENTRIC ALIGNMENT ---
+Backbone RMSD: 0.7919 Å (294 atoms)
+Overall RMSD: 1.0420 Å
+  ✓ Global RMSD: 1.040 Å (excellent)
+  ✗ Error: Object of type bool is not JSON serializable
+
+[13/21] Analyzing p456_09...
+Gap-tolerant alignment: Obs positions 7-300 (289 residues)
+                       Pred positions 1-300 (300 residues)
+Direct position matches: 289
+Using direct position matching: 289 pairs
+Gap-tolerant alignment: Obs positions 1-26 (26 residues)
+                       Pred positions 1-22 (22 residues)
+Direct position matches: 6
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[2:16] → pred[0:14] (14 residues)
+Found alignment segment: obs[17:24] → pred[14:21] (7 residues)
+Sequence-based alignment: 21 pairs from 2 segments
+Gap-tolerant alignment: Obs positions 1-26 (26 residues)
+                       Pred positions 1-22 (22 residues)
+Direct position matches: 6
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[1:8] → pred[0:7] (7 residues)
+Found alignment segment: obs[8:23] → pred[7:22] (15 residues)
+Sequence-based alignment: 22 pairs from 2 segments
+Correspondence: 289 protein, 42 DNA
+
+--- GLOBAL ALIGNMENT ---
+Backbone RMSD: 1.2787 Å (331 atoms)
+Overall RMSD: 1.5237 Å
+
+--- DNA_CENTRIC ALIGNMENT ---
+Backbone RMSD: 2.6645 Å (42 atoms)
+Overall RMSD: 2.3810 Å
+
+--- PROTEIN_CENTRIC ALIGNMENT ---
+Backbone RMSD: 0.7285 Å (289 atoms)
+Overall RMSD: 1.5693 Å
+  ✓ Global RMSD: 1.524 Å (excellent)
+  ✗ Error: Object of type bool is not JSON serializable
+
+[14/21] Analyzing p456_05...
+Gap-tolerant alignment: Obs positions 8-300 (293 residues)
+                       Pred positions 1-300 (300 residues)
+Direct position matches: 293
+Using direct position matching: 293 pairs
+Gap-tolerant alignment: Obs positions 1-26 (26 residues)
+                       Pred positions 1-22 (22 residues)
+Direct position matches: 5
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[2:24] → pred[0:22] (22 residues)
+Sequence-based alignment: 22 pairs from 1 segments
+Gap-tolerant alignment: Obs positions 1-26 (26 residues)
+                       Pred positions 1-22 (22 residues)
+Direct position matches: 6
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[1:23] → pred[0:22] (22 residues)
+Sequence-based alignment: 22 pairs from 1 segments
+Correspondence: 293 protein, 44 DNA
+
+--- GLOBAL ALIGNMENT ---
+Backbone RMSD: 1.3523 Å (337 atoms)
+Overall RMSD: 1.5312 Å
+
+--- DNA_CENTRIC ALIGNMENT ---
+Backbone RMSD: 2.4008 Å (44 atoms)
+Overall RMSD: 2.7129 Å
+
+--- PROTEIN_CENTRIC ALIGNMENT ---
+Backbone RMSD: 0.9291 Å (293 atoms)
+Overall RMSD: 1.5695 Å
+  ✓ Global RMSD: 1.531 Å (excellent)
+  ✗ Error: Object of type bool is not JSON serializable
+
+[15/21] Analyzing p456_24...
+Gap-tolerant alignment: Obs positions 8-301 (292 residues)
+                       Pred positions 1-300 (300 residues)
+Direct position matches: 10
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[0:148] → pred[5:153] (148 residues)
+Found alignment segment: obs[148:292] → pred[155:299] (144 residues)
+Sequence-based alignment: 292 pairs from 2 segments
+Gap-tolerant alignment: Obs positions 1-25 (25 residues)
+                       Pred positions 1-22 (22 residues)
+Direct position matches: 9
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[0:22] → pred[0:22] (22 residues)
+Sequence-based alignment: 22 pairs from 1 segments
+Gap-tolerant alignment: Obs positions 1-25 (25 residues)
+                       Pred positions 1-22 (22 residues)
+Direct position matches: 4
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[1:23] → pred[0:22] (22 residues)
+Sequence-based alignment: 22 pairs from 1 segments
+Correspondence: 292 protein, 44 DNA
+
+--- GLOBAL ALIGNMENT ---
+Backbone RMSD: 0.7946 Å (336 atoms)
+Overall RMSD: 1.0619 Å
+
+--- DNA_CENTRIC ALIGNMENT ---
+Backbone RMSD: 0.8893 Å (44 atoms)
+Overall RMSD: 1.1055 Å
+
+--- PROTEIN_CENTRIC ALIGNMENT ---
+Backbone RMSD: 0.7612 Å (292 atoms)
+Overall RMSD: 1.0687 Å
+  ✓ Global RMSD: 1.062 Å (excellent)
+  ✗ Error: Object of type bool is not JSON serializable
+
+[16/21] Analyzing p456_15...
+Gap-tolerant alignment: Obs positions 6-300 (295 residues)
+                       Pred positions 1-300 (300 residues)
+Direct position matches: 295
+Using direct position matching: 295 pairs
+Gap-tolerant alignment: Obs positions 1-26 (26 residues)
+                       Pred positions 1-22 (22 residues)
+Direct position matches: 6
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[2:24] → pred[0:22] (22 residues)
+Sequence-based alignment: 22 pairs from 1 segments
+Gap-tolerant alignment: Obs positions 1-26 (26 residues)
+                       Pred positions 1-22 (22 residues)
+Direct position matches: 6
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[1:23] → pred[0:22] (22 residues)
+Sequence-based alignment: 22 pairs from 1 segments
+Correspondence: 295 protein, 44 DNA
+
+--- GLOBAL ALIGNMENT ---
+Backbone RMSD: 1.3348 Å (339 atoms)
+Overall RMSD: 1.5591 Å
+
+--- DNA_CENTRIC ALIGNMENT ---
+Backbone RMSD: 2.4766 Å (44 atoms)
+Overall RMSD: 3.1887 Å
+
+--- PROTEIN_CENTRIC ALIGNMENT ---
+Backbone RMSD: 0.7211 Å (295 atoms)
+Overall RMSD: 1.6232 Å
+  ✓ Global RMSD: 1.559 Å (excellent)
+  ✗ Error: Object of type bool is not JSON serializable
+
+[17/21] Analyzing p456_20...
+Gap-tolerant alignment: Obs positions 7-301 (294 residues)
+                       Pred positions 1-300 (300 residues)
+Direct position matches: 10
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[0:150] → pred[3:153] (150 residues)
+Found alignment segment: obs[150:294] → pred[155:299] (144 residues)
+Sequence-based alignment: 294 pairs from 2 segments
+Gap-tolerant alignment: Obs positions 1-26 (26 residues)
+                       Pred positions 1-22 (22 residues)
+Direct position matches: 10
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[0:22] → pred[0:22] (22 residues)
+Sequence-based alignment: 22 pairs from 1 segments
+Gap-tolerant alignment: Obs positions 1-25 (25 residues)
+                       Pred positions 1-22 (22 residues)
+Direct position matches: 5
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[0:5] → pred[16:21] (5 residues)
+Found alignment segment: obs[5:18] → pred[2:15] (13 residues)
+Sequence-based alignment: 18 pairs from 2 segments
+Correspondence: 294 protein, 39 DNA
+
+--- GLOBAL ALIGNMENT ---
+Backbone RMSD: 7.0101 Å (332 atoms)
+Overall RMSD: 11.5577 Å
+
+--- DNA_CENTRIC ALIGNMENT ---
+Backbone RMSD: 19.4833 Å (38 atoms)
+Overall RMSD: 12.9408 Å
+
+--- PROTEIN_CENTRIC ALIGNMENT ---
+Backbone RMSD: 0.8075 Å (294 atoms)
+Overall RMSD: 11.6941 Å
+  ✓ Global RMSD: 11.558 Å (poor)
+  ✗ Error: Object of type bool is not JSON serializable
+
+[18/21] Analyzing p456_25...
+Gap-tolerant alignment: Obs positions 6-301 (296 residues)
+                       Pred positions 1-300 (300 residues)
+Direct position matches: 13
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[0:296] → pred[3:299] (296 residues)
+Sequence-based alignment: 296 pairs from 1 segments
+Gap-tolerant alignment: Obs positions 1-26 (26 residues)
+                       Pred positions 1-22 (22 residues)
+Direct position matches: 10
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[0:22] → pred[0:22] (22 residues)
+Sequence-based alignment: 22 pairs from 1 segments
+Gap-tolerant alignment: Obs positions 1-26 (26 residues)
+                       Pred positions 1-22 (22 residues)
+Direct position matches: 5
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[0:5] → pred[16:21] (5 residues)
+Found alignment segment: obs[5:18] → pred[2:15] (13 residues)
+Sequence-based alignment: 18 pairs from 2 segments
+Correspondence: 296 protein, 39 DNA
+
+--- GLOBAL ALIGNMENT ---
+Backbone RMSD: 6.9889 Å (334 atoms)
+Overall RMSD: 11.3706 Å
+
+--- DNA_CENTRIC ALIGNMENT ---
+Backbone RMSD: 19.4948 Å (38 atoms)
+Overall RMSD: 13.0419 Å
+
+--- PROTEIN_CENTRIC ALIGNMENT ---
+Backbone RMSD: 0.6018 Å (296 atoms)
+Overall RMSD: 11.4979 Å
+  ✓ Global RMSD: 11.371 Å (poor)
+  ✗ Error: Object of type bool is not JSON serializable
+
+[19/21] Analyzing p456_04...
+Gap-tolerant alignment: Obs positions 7-300 (293 residues)
+                       Pred positions 1-300 (300 residues)
+Direct position matches: 293
+Using direct position matching: 293 pairs
+Gap-tolerant alignment: Obs positions 1-26 (26 residues)
+                       Pred positions 1-22 (22 residues)
+Direct position matches: 6
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[2:24] → pred[0:22] (22 residues)
+Sequence-based alignment: 22 pairs from 1 segments
+Gap-tolerant alignment: Obs positions 1-26 (26 residues)
+                       Pred positions 1-22 (22 residues)
+Direct position matches: 7
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[1:23] → pred[0:22] (22 residues)
+Sequence-based alignment: 22 pairs from 1 segments
+Correspondence: 293 protein, 44 DNA
+
+--- GLOBAL ALIGNMENT ---
+Backbone RMSD: 1.5913 Å (337 atoms)
+Overall RMSD: 1.6941 Å
+
+--- DNA_CENTRIC ALIGNMENT ---
+Backbone RMSD: 2.6536 Å (44 atoms)
+Overall RMSD: 3.5105 Å
+
+--- PROTEIN_CENTRIC ALIGNMENT ---
+Backbone RMSD: 1.0891 Å (293 atoms)
+Overall RMSD: 1.7413 Å
+  ✓ Global RMSD: 1.694 Å (excellent)
+  ✗ Error: Object of type bool is not JSON serializable
+
+[20/21] Analyzing p456_10...
+Gap-tolerant alignment: Obs positions 6-300 (290 residues)
+                       Pred positions 1-300 (300 residues)
+Direct position matches: 290
+Using direct position matching: 290 pairs
+Gap-tolerant alignment: Obs positions 1-26 (26 residues)
+                       Pred positions 1-22 (22 residues)
+Direct position matches: 5
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[2:24] → pred[0:22] (22 residues)
+Sequence-based alignment: 22 pairs from 1 segments
+Gap-tolerant alignment: Obs positions 1-26 (26 residues)
+                       Pred positions 1-22 (22 residues)
+Direct position matches: 6
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[1:23] → pred[0:22] (22 residues)
+Sequence-based alignment: 22 pairs from 1 segments
+Correspondence: 290 protein, 44 DNA
+
+--- GLOBAL ALIGNMENT ---
+Backbone RMSD: 1.2636 Å (334 atoms)
+Overall RMSD: 1.3928 Å
+
+--- DNA_CENTRIC ALIGNMENT ---
+Backbone RMSD: 2.2630 Å (44 atoms)
+Overall RMSD: 2.4745 Å
+
+--- PROTEIN_CENTRIC ALIGNMENT ---
+Backbone RMSD: 0.8640 Å (290 atoms)
+Overall RMSD: 1.4195 Å
+  ✓ Global RMSD: 1.393 Å (excellent)
+  ✗ Error: Object of type bool is not JSON serializable
+
+[21/21] Analyzing p456_21...
+Gap-tolerant alignment: Obs positions 3-301 (299 residues)
+                       Pred positions 1-300 (300 residues)
+Direct position matches: 13
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[0:177] → pred[0:177] (177 residues)
+Found alignment segment: obs[177:190] → pred[178:191] (13 residues)
+Found alignment segment: obs[190:195] → pred[191:196] (5 residues)
+Found alignment segment: obs[195:218] → pred[196:219] (23 residues)
+Found alignment segment: obs[218:232] → pred[219:233] (14 residues)
+Found alignment segment: obs[232:298] → pred[233:299] (66 residues)
+Sequence-based alignment: 298 pairs from 6 segments
+Gap-tolerant alignment: Obs positions 1-26 (26 residues)
+                       Pred positions 1-22 (22 residues)
+Direct position matches: 8
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[0:18] → pred[0:18] (18 residues)
+Sequence-based alignment: 18 pairs from 1 segments
+Gap-tolerant alignment: Obs positions 1-26 (26 residues)
+                       Pred positions 1-22 (22 residues)
+Direct position matches: 4
+Direct matching insufficient, using sequence-based alignment with gap handling...
+Found alignment segment: obs[1:22] → pred[0:21] (21 residues)
+Sequence-based alignment: 21 pairs from 1 segments
+Correspondence: 288 protein, 39 DNA
+
+--- GLOBAL ALIGNMENT ---
+Backbone RMSD: 1.5730 Å (327 atoms)
+Overall RMSD: 1.4930 Å
+
+--- DNA_CENTRIC ALIGNMENT ---
+Backbone RMSD: 1.0476 Å (39 atoms)
+Overall RMSD: 1.5182 Å
+
+--- PROTEIN_CENTRIC ALIGNMENT ---
+Backbone RMSD: 1.6218 Å (288 atoms)
+Overall RMSD: 1.5001 Å
+  ✓ Global RMSD: 1.493 Å (excellent)
+  ✗ Error: Object of type bool is not JSON serializable
+
+=== BATCH ANALYSIS COMPLETE ===
+Successful analyses: 21
+Failed analyses: 21
+
+=== GENERATING BATCH SUMMARY ===
+✓ Generated batch_analysis_summary.csv
+✓ Generated batch_statistics.json
+
+=== BATCH ANALYSIS SUMMARY ===
+Total Structures: 21
+Mean Global RMSD: 5.409 Å
+Overall Quality: Poor
+Quality Distribution:
+  - Excellent: 12 structures
+  - Poor: 9 structures
+
+=== GENERATING ADVANCED ANALYTICS ===
+⚠ Advanced analytics generation failed: No module named 'seaborn'
+
+=== GENERATING VISUALIZATIONS ===
+⚠ Visualization generation failed: No module named 'seaborn'
+
+🎉 Batch analysis complete!
+📁 Results saved to: /Users/mesler/Library/CloudStorage/OneDrive-FredHutchCancerCenter/Documents/IonuI_StructureML/BioSB/BioStructBenchmark/tests/outputs/real_data_batch_analysis
+📊 Generated comprehensive reports and visualizations

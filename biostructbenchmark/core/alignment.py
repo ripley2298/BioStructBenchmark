@@ -70,34 +70,153 @@ class AlignmentResult:
 # --- SEQUENCE ALIGNMENT ---
 
 def align_sequences(obs_residues: List, pred_residues: List) -> List[Tuple]:
-    """Align sequences using sliding window to find optimal correspondence"""
+    """
+    Gap-tolerant sequence alignment for experimental structures with missing residues.
+    Uses position-based matching with gap handling to maximize aligned residues.
+    """
+    if not obs_residues or not pred_residues:
+        return []
+    
+    # Create position-to-residue maps for efficient lookup
+    obs_pos_map = {res.get_id()[1]: res for res in obs_residues}
+    pred_pos_map = {res.get_id()[1]: res for res in pred_residues}
+    
+    # Get position ranges
+    obs_positions = sorted(obs_pos_map.keys())
+    pred_positions = sorted(pred_pos_map.keys())
+    
+    aligned_pairs = []
+    
+    print(f"Gap-tolerant alignment: Obs positions {obs_positions[0]}-{obs_positions[-1]} ({len(obs_positions)} residues)")
+    print(f"                       Pred positions {pred_positions[0]}-{pred_positions[-1]} ({len(pred_positions)} residues)")
+    
+    # Strategy 1: Direct position matching (works when numbering is consistent)
+    direct_matches = 0
+    for pos in obs_positions:
+        if pos in pred_pos_map:
+            obs_res = obs_pos_map[pos]
+            pred_res = pred_pos_map[pos]
+            # Verify sequence identity for the match
+            if obs_res.get_resname().strip() == pred_res.get_resname().strip():
+                aligned_pairs.append((obs_res, pred_res))
+                direct_matches += 1
+    
+    print(f"Direct position matches: {direct_matches}")
+    
+    # If direct matching worked well, use it
+    if direct_matches >= min(len(obs_residues), len(pred_residues)) * 0.7:
+        print(f"Using direct position matching: {len(aligned_pairs)} pairs")
+        return aligned_pairs
+    
+    # Strategy 2: Sequence-based alignment with gap tolerance
+    print("Direct matching insufficient, using sequence-based alignment with gap handling...")
+    aligned_pairs = []
+    
+    # Create sequence strings and position arrays
     obs_seq = [res.get_resname().strip() for res in obs_residues]
     pred_seq = [res.get_resname().strip() for res in pred_residues]
     
-    # Find best consecutive match
-    best_score = 0
-    best_obs_start = 0 
-    best_pred_start = 0
+    # Find alignment segments using dynamic approach
+    alignment_segments = find_alignment_segments(obs_seq, pred_seq, obs_residues, pred_residues)
     
+    # Collect all aligned pairs from segments
+    for segment in alignment_segments:
+        aligned_pairs.extend(segment['pairs'])
+    
+    print(f"Sequence-based alignment: {len(aligned_pairs)} pairs from {len(alignment_segments)} segments")
+    
+    return aligned_pairs
+
+
+def find_alignment_segments(obs_seq: List[str], pred_seq: List[str], 
+                          obs_residues: List, pred_residues: List) -> List[Dict]:
+    """
+    Find multiple alignment segments to handle gaps in experimental structures.
+    Returns segments with their aligned pairs.
+    """
+    segments = []
+    min_segment_length = 5  # Minimum consecutive matches to form a segment
+    
+    # Track which positions have been used to avoid double-counting
+    used_obs = set()
+    used_pred = set()
+    
+    # Find all possible alignment segments
     for obs_start in range(len(obs_seq)):
+        if obs_start in used_obs:
+            continue
+            
         for pred_start in range(len(pred_seq)):
-            score = 0
+            if pred_start in used_pred:
+                continue
+                
+            # Try to extend alignment from this starting point
+            segment_pairs = []
             obs_pos, pred_pos = obs_start, pred_start
+            consecutive_matches = 0
             
-            while (obs_pos < len(obs_seq) and pred_pos < len(pred_seq) and
-                   obs_seq[obs_pos] == pred_seq[pred_pos]):
-                score += 1
-                obs_pos += 1
-                pred_pos += 1
+            while (obs_pos < len(obs_seq) and pred_pos < len(pred_seq) and 
+                   obs_pos not in used_obs and pred_pos not in used_pred):
+                
+                if obs_seq[obs_pos] == pred_seq[pred_pos]:
+                    # Match found
+                    segment_pairs.append((obs_residues[obs_pos], pred_residues[pred_pos]))
+                    consecutive_matches += 1
+                    obs_pos += 1
+                    pred_pos += 1
+                else:
+                    # Mismatch - try to handle gaps
+                    if consecutive_matches >= min_segment_length:
+                        # Save current segment if it's long enough
+                        break
+                    else:
+                        # Try skipping gaps in either sequence
+                        gap_handled = False
+                        
+                        # Try skipping in observed sequence (experimental gap)
+                        if (obs_pos + 1 < len(obs_seq) and 
+                            obs_seq[obs_pos + 1] == pred_seq[pred_pos]):
+                            obs_pos += 1  # Skip gap in observed
+                            gap_handled = True
+                        
+                        # Try skipping in predicted sequence  
+                        elif (pred_pos + 1 < len(pred_seq) and 
+                              obs_seq[obs_pos] == pred_seq[pred_pos + 1]):
+                            pred_pos += 1  # Skip gap in predicted
+                            gap_handled = True
+                        
+                        # Try skipping in both (rare but possible)
+                        elif (obs_pos + 1 < len(obs_seq) and pred_pos + 1 < len(pred_seq) and
+                              obs_seq[obs_pos + 1] == pred_seq[pred_pos + 1]):
+                            obs_pos += 1
+                            pred_pos += 1
+                            gap_handled = True
+                        
+                        if not gap_handled:
+                            # Can't handle this gap, break segment
+                            break
             
-            if score > best_score:
-                best_score = score
-                best_obs_start = obs_start
-                best_pred_start = pred_start
+            # Add segment if it's substantial
+            if len(segment_pairs) >= min_segment_length:
+                # Mark positions as used
+                for i, (obs_res, pred_res) in enumerate(segment_pairs):
+                    used_obs.add(obs_start + i)
+                    used_pred.add(pred_start + i)
+                
+                segments.append({
+                    'obs_start': obs_start,
+                    'pred_start': pred_start,
+                    'length': len(segment_pairs),
+                    'pairs': segment_pairs
+                })
+                
+                print(f"Found alignment segment: obs[{obs_start}:{obs_start + len(segment_pairs)}] → "
+                      f"pred[{pred_start}:{pred_start + len(segment_pairs)}] ({len(segment_pairs)} residues)")
     
-    # Return aligned pairs
-    return [(obs_residues[best_obs_start + i], pred_residues[best_pred_start + i]) 
-            for i in range(best_score)]
+    # Sort segments by length (longest first) to prioritize quality alignments
+    segments.sort(key=lambda x: x['length'], reverse=True)
+    
+    return segments
 
 
 def create_correspondence_map(observed: BioStructure, predicted: BioStructure, 
@@ -153,6 +272,30 @@ def get_backbone_atoms(structure: BioStructure, correspondence: Dict,
     return atoms
 
 
+def get_matched_backbone_atoms(obs_structure: BioStructure, pred_structure: BioStructure,
+                              correspondence: Dict, atom_name: str) -> Tuple[List, List]:
+    """
+    Extract matched backbone atoms ensuring equal counts for superimposition.
+    Only returns atoms where both observed and predicted residues have the required atom.
+    """
+    obs_atoms = []
+    pred_atoms = []
+    
+    for (obs_chain, obs_pos), (pred_chain, pred_pos) in correspondence.items():
+        try:
+            obs_residue = obs_structure[0][obs_chain][obs_pos]
+            pred_residue = pred_structure[0][pred_chain][pred_pos]
+            
+            # Only add if both residues have the required atom
+            if atom_name in obs_residue and atom_name in pred_residue:
+                obs_atoms.append(obs_residue[atom_name])
+                pred_atoms.append(pred_residue[atom_name])
+        except KeyError:
+            continue
+    
+    return obs_atoms, pred_atoms
+
+
 def align_structures_three_frames(observed: BioStructure, predicted: BioStructure) -> Dict:
     """Perform alignment in three reference frames: global, DNA-centric, protein-centric"""
     import copy
@@ -171,23 +314,21 @@ def align_structures_three_frames(observed: BioStructure, predicted: BioStructur
         # Create copy for transformation
         pred_copy = copy.deepcopy(predicted)
         
-        # Get alignment atoms based on reference frame
+        # Get alignment atoms based on reference frame using matched atom extraction
         if ref_frame == 'global':
-            # Use both CA and P atoms
-            obs_atoms = (get_backbone_atoms(observed, protein_corr, 'CA', is_observed=True) + 
-                        get_backbone_atoms(observed, dna_corr, 'P', is_observed=True))
-            pred_atoms = (get_backbone_atoms(pred_copy, protein_corr, 'CA', is_observed=False) +
-                         get_backbone_atoms(pred_copy, dna_corr, 'P', is_observed=False))
+            # Use both CA and P atoms with matched extraction
+            protein_obs, protein_pred = get_matched_backbone_atoms(observed, pred_copy, protein_corr, 'CA')
+            dna_obs, dna_pred = get_matched_backbone_atoms(observed, pred_copy, dna_corr, 'P')
+            obs_atoms = protein_obs + dna_obs
+            pred_atoms = protein_pred + dna_pred
             
         elif ref_frame == 'dna_centric':
-            # Use only P atoms
-            obs_atoms = get_backbone_atoms(observed, dna_corr, 'P', is_observed=True)
-            pred_atoms = get_backbone_atoms(pred_copy, dna_corr, 'P', is_observed=False)
+            # Use only P atoms with matched extraction
+            obs_atoms, pred_atoms = get_matched_backbone_atoms(observed, pred_copy, dna_corr, 'P')
             
         else:  # protein_centric
-            # Use only CA atoms  
-            obs_atoms = get_backbone_atoms(observed, protein_corr, 'CA', is_observed=True)
-            pred_atoms = get_backbone_atoms(pred_copy, protein_corr, 'CA', is_observed=False)
+            # Use only CA atoms with matched extraction
+            obs_atoms, pred_atoms = get_matched_backbone_atoms(observed, pred_copy, protein_corr, 'CA')
         
         # Perform superimposition
         if len(obs_atoms) >= 3:

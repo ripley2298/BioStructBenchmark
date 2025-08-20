@@ -1,0 +1,42 @@
+/Users/mesler/Library/CloudStorage/OneDrive-FredHutchCancerCenter/Documents/IonuI_StructureML/BioSB/BioStructBenchmark/biostructbenchmark/visualization/__init__.py:19: UserWarning: Matplotlib not available - visualization features disabled
+  warnings.warn("Matplotlib not available - visualization features disabled")
+BioStructBenchmark Real Data Batch Analysis
+==================================================
+Experimental structures: /Users/mesler/Documents/IonuI_StructureML/experimental
+Predicted structures: /Users/mesler/Documents/IonuI_StructureML/predicted_alphafold3
+Output directory: /Users/mesler/Library/CloudStorage/OneDrive-FredHutchCancerCenter/Documents/IonuI_StructureML/BioSB/BioStructBenchmark/tests/outputs/real_data_batch_analysis
+Found 22 experimental structures
+✓ Paired: p456_26_experimental.pdb <-> p456_26_alphafold.cif
+✓ Paired: p456_18_experimental.pdb <-> p456_18_alphafold.cif
+✓ Paired: p456_07_experimental.pdb <-> p456_07_alphafold3.cif
+✓ Paired: p456_03_experimental.pdb <-> p456_03_alphafold3.cif
+✓ Paired: p456_22_experimental.pdb <-> p456_22_alphafold.cif
+✓ Paired: p456_08_experimental.pdb <-> p456_08_alphafold3.cif
+✓ Paired: p456_17_experimental.pdb <-> p456_17_alphafold.cif
+✓ Paired: p456_06_experimental.pdb <-> p456_06_alphafold3.cif
+✓ Paired: p456_19_experimental.pdb <-> p456_19_alphafold.cif
+✓ Paired: p456_23_experimental.pdb <-> p456_23_alphafold.cif
+✓ Paired: p456_02_experimental.pdb <-> p456_02_alphafold3.cif
+✓ Paired: p456_16_experimental.pdb <-> p456_16_alphafold.cif
+✓ Paired: p456_09_experimental.pdb <-> p456_09_alphafold3.cif
+✓ Paired: p456_05_experimental.pdb <-> p456_05_alphafold3.cif
+✓ Paired: p456_24_experimental.pdb <-> p456_24_alphafold.cif
+✓ Paired: p456_15_experimental.pdb <-> p456_15_alphafold3.cif
+✓ Paired: p456_20_experimental.pdb <-> p456_20_alphafold.cif
+✓ Paired: p456_25_experimental.pdb <-> p456_25_alphafold.cif
+✓ Paired: p456_04_experimental.pdb <-> p456_04_alphafold3.cif
+✓ Paired: p456_10_experimental.pdb <-> p456_10_alphafold3.cif
+⚠ No match for p456_14_experimental.pdb
+✓ Paired: p456_21_experimental.pdb <-> p456_21_alphafold.cif
+
+Total structure pairs found: 21
+Traceback (most recent call last):
+  File "/Users/mesler/Library/CloudStorage/OneDrive-FredHutchCancerCenter/Documents/IonuI_StructureML/BioSB/BioStructBenchmark/real_data_batch_analysis.py", line 496, in <module>
+    success = main()
+  File "/Users/mesler/Library/CloudStorage/OneDrive-FredHutchCancerCenter/Documents/IonuI_StructureML/BioSB/BioStructBenchmark/real_data_batch_analysis.py", line 484, in main
+    success = run_batch_analysis(structure_pairs, output_dir)
+  File "/Users/mesler/Library/CloudStorage/OneDrive-FredHutchCancerCenter/Documents/IonuI_StructureML/BioSB/BioStructBenchmark/real_data_batch_analysis.py", line 64, in run_batch_analysis
+    from biostructbenchmark.visualization.plots import PublicationPlotter, create_publication_report
+  File "/Users/mesler/Library/CloudStorage/OneDrive-FredHutchCancerCenter/Documents/IonuI_StructureML/BioSB/BioStructBenchmark/biostructbenchmark/visualization/plots.py", line 6, in <module>
+    import matplotlib.pyplot as plt
+ModuleNotFoundError: No module named 'matplotlib'

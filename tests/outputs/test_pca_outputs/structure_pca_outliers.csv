@@ -1,7 +1,0 @@
-id,type,outlier_score,outlier_type,distance_to_centroid,contributing_features
-original,structure,2.169875583190116,moderate,8.786316625765362,protein_mean_rmsd;mean_rmsd;q75_rmsd
-structure_3,structure,0.6745495199717342,normal,1.9262806845762799,protein_mean_rmsd;mean_rmsd;q75_rmsd
-structure_5,structure,0.6493704270062661,normal,1.9870063062555594,protein_mean_rmsd;mean_rmsd;q75_rmsd
-structure_2,structure,0.5859951897963648,normal,2.139851394199001,protein_mean_rmsd;mean_rmsd;q75_rmsd
-structure_4,structure,0.26738631440499144,normal,2.908255643597966,kurtosis;skewness;max_rmsd
-structure_1,structure,0.007425867989241319,normal,3.5710333156855323,kurtosis;skewness;protein_mean_rmsd
