@@ -7,3 +7,37 @@ __pycache__/
 .DS_Store
 .coverage/
 data/.DS_Store
+*.log
+
+# Root directory ignores
+.claude
+.coverage
+.DS_Store
+.pytest_cache
+
+# biostructbenchmark directory ignores
+biostructbenchmark/__pycache__/
+biostructbenchmark/.coverage
+biostructbenchmark/.DS_Store
+
+# biostructbenchmark/analysis directory ignores
+biostructbenchmark/analysis/.DS_Store
+
+# biostructbenchmark/core directory ignores
+biostructbenchmark/core/.DS_Store
+biostructbenchmark/core/__pycache__/
+
+# biostructbenchmark/visualization directory ignores
+biostructbenchmark/visualization/.DS_Store
+biostructbenchmark/visualization/curves_plots.py
+biostructbenchmark/visualization/__pycache__/
+
+# Ignore temp directories
+temp_*/
+test_final_integration_outputs/
+test_structure_output/
+tests/outputs/
+
+# Ignore specific untracked files
+test_single_batch_output/
+test_structure_saving.py
