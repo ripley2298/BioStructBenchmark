@@ -9,6 +9,7 @@ from .secondary import SecondaryStructureAnalyzer, SecondaryStructure
 from .consensus import ConsensusAnalyzer, ConsensusError
 from .mutations import MutationAnalyzer, Mutation
 from .pca import PCAAnalyzer, PCAResult, StructureOutlier, ResidueOutlier
+from .hbond import HBondAnalyzer, HydrogenBond, HBondComparison, HBondStatistics
 
 # Conditional import for CURVES+ (may not have executable)
 try:
@@ -43,6 +44,12 @@ __all__ = [
     'PCAResult',
     'StructureOutlier',
     'ResidueOutlier',
+    
+    # Hydrogen bond analysis
+    'HBondAnalyzer',
+    'HydrogenBond',
+    'HBondComparison',
+    'HBondStatistics',
 ]
 
 # Add CURVES+ if available

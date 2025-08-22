@@ -232,11 +232,13 @@ def run_basic_rmsd(exp_path: Path, pred_path: Path,
                     args.reference_frame
                 )
             
-            # Return summary
+            # Return both summary and raw data for visualization
             return {
                 'overall_rmsd': result.overall_rmsd,
                 'atom_count': result.aligned_atom_count,
-                'residue_count': len(result.residue_rmsds)
+                'residue_count': len(result.residue_rmsds),
+                '_raw_result': result,  # Include full result object for visualization
+                'residue_rmsds': result.residue_rmsds  # Direct access to residue data
             }
         
         return None
@@ -352,30 +354,109 @@ def run_mutation_analysis(exp_path: Path, pred_path: Path,
 def generate_visualizations(results: Dict, output_dir: Path, args) -> Optional[Dict]:
     """Generate all requested visualizations"""
     try:
-        from biostructbenchmark.visualization.plots import PublicationPlotter
+        from biostructbenchmark.visualization.residue_plots import create_residue_analysis, ResidueVisualizer
         
         if not args.quiet:
             print("  → Generating visualizations...")
         
-        plotter = PublicationPlotter()
         viz_results = {}
+        viz_dir = output_dir / "visualizations"
+        viz_dir.mkdir(exist_ok=True)
         
-        # Multi-frame dashboard if available
+        # Extract residue data for visualization
+        residue_data = None
+        analysis_data = {}
+        
+        # Get residue RMSD data from different result types
         if 'multi_frame' in results and results['multi_frame']:
-            # This would need the actual result object, not just summary
-            # For now, we'll note it was requested
-            viz_results['multi_frame_dashboard'] = str(output_dir / "multi_frame_dashboard.png")
+            # Multi-frame results - we need to access the actual result object
+            # This needs to be passed differently from the pipeline
+            pass
+        elif 'rmsd' in results and results['rmsd'] and results['rmsd'].get('residue_rmsds'):
+            # Single RMSD analysis - extract residue data
+            residue_data = results['rmsd']['residue_rmsds']
+            if not args.quiet:
+                print(f"  ✓ Found {len(residue_data)} residues for detailed visualization")
         
-        # General dashboard for all analyses
-        if len(results) > 1:
-            plotter.summary_dashboard(
-                results,
-                output_dir / "analysis_dashboard.png"
-            )
-            viz_results['dashboard'] = str(output_dir / "analysis_dashboard.png")
+        # Generate comprehensive residue analysis if we have residue data
+        if residue_data:
+            try:
+                viz_paths = create_residue_analysis(residue_data, viz_dir, analysis_data)
+                viz_results.update(viz_paths)
+                
+                if not args.quiet:
+                    print(f"  ✓ Generated {len(viz_paths)} detailed residue visualizations")
+                    
+            except Exception as e:
+                if not args.quiet:
+                    print(f"  ⚠ Detailed residue visualization failed: {e}")
+                if args.verbose:
+                    import traceback
+                    traceback.print_exc()
+        else:
+            # Fallback message
+            if any('rmsd' in str(k).lower() for k in results.keys()):
+                if not args.quiet:
+                    print("  ℹ RMSD data detected but detailed residue data not available")
+                    print("  ℹ Run with updated pipeline for detailed visualizations")
+        
+        # B-factor data for correlations
+        if 'bfactor' in results and results['bfactor']:
+            analysis_data['bfactor'] = results['bfactor']
+        
+        # Consensus data
+        if 'consensus' in results and results['consensus']:
+            analysis_data['consensus'] = results['consensus']
+        
+        # Mutation data
+        if 'mutations' in results and results['mutations']:
+            analysis_data['mutations'] = results['mutations']
+        
+        # Generate basic summary if we have any data
+        if results:
+            try:
+                # Create a simple summary plot instead of complex dashboard
+                import matplotlib.pyplot as plt
+                fig, ax = plt.subplots(figsize=(10, 6))
+                
+                # Create summary of available analyses
+                analysis_types = list(results.keys())
+                analysis_types = [t for t in analysis_types if t != 'visualization']
+                
+                ax.text(0.1, 0.8, 'BioStructBenchmark Analysis Summary', 
+                       fontsize=16, fontweight='bold', transform=ax.transAxes)
+                
+                y_pos = 0.6
+                for i, analysis_type in enumerate(analysis_types):
+                    if results[analysis_type]:
+                        ax.text(0.1, y_pos - i*0.1, f"✓ {analysis_type.upper()} analysis completed", 
+                               fontsize=12, transform=ax.transAxes)
+                    else:
+                        ax.text(0.1, y_pos - i*0.1, f"✗ {analysis_type.upper()} analysis failed", 
+                               fontsize=12, color='red', transform=ax.transAxes)
+                
+                ax.text(0.1, 0.2, 'Note: Detailed residue visualizations require --save-residue-data flag', 
+                       fontsize=10, style='italic', transform=ax.transAxes)
+                
+                ax.set_xlim(0, 1)
+                ax.set_ylim(0, 1)
+                ax.axis('off')
+                
+                summary_path = viz_dir / "analysis_summary.png"
+                fig.savefig(summary_path, dpi=300, bbox_inches='tight', facecolor='white')
+                plt.close(fig)
+                
+                viz_results['summary'] = str(summary_path)
+                
+            except Exception as e:
+                if args.verbose:
+                    print(f"  ⚠ Could not create summary visualization: {e}")
         
         if not args.quiet:
-            print(f"  ✓ Generated {len(viz_results)} visualizations")
+            if viz_results:
+                print(f"  ✓ Generated {len(viz_results)} visualization(s)")
+            else:
+                print("  ℹ No visualizations generated - detailed data needed")
         
         return viz_results
         
@@ -385,6 +466,9 @@ def generate_visualizations(results: Dict, output_dir: Path, args) -> Optional[D
         return None
     except Exception as e:
         print(f"  ✗ Visualization failed: {e}")
+        if args.verbose:
+            import traceback
+            traceback.print_exc()
         return None
 
 

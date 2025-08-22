@@ -7,6 +7,7 @@ Supports sequence-based correspondence and three reference frames
 import numpy as np
 from typing import List, Dict, Tuple, Optional
 from Bio.PDB import Structure as BioStructure, Superimposer
+from Bio.Align import PairwiseAligner
 from dataclasses import dataclass
 
 
@@ -22,6 +23,7 @@ class ResidueRMSD:
     rmsd: float
     atom_count: int
     molecule_type: str  # 'protein' or 'dna'
+    dna_atoms: Optional[List['Bio.PDB.Atom.Atom']] = None  # DNA atoms for distance calculations
     
     @property
     def unit_id(self) -> str:
@@ -42,6 +44,46 @@ class ResidueRMSD:
     def is_dna(self) -> bool:
         """True if this represents a DNA base/nucleotide"""
         return self.molecule_type == 'dna'
+    
+    def min_phosphate_distance(self, protein_atoms: Optional[List['Bio.PDB.Atom.Atom']] = None) -> float:
+        """
+        Returns min distance (Å) from protein residue to DNA phosphate atoms (P, O1P, O2P).
+        
+        Args:
+            protein_atoms: List of protein atoms for distance calculation.
+                          If None, assumes this is a protein residue and uses self.dna_atoms for DNA
+        
+        Returns:
+            Minimum distance to phosphate atoms, or float('inf') if no DNA atoms available
+        """
+        if not self.dna_atoms:
+            return float('inf')
+        
+        # Determine source and target atoms based on molecule type
+        if self.molecule_type == 'protein':
+            # This is a protein residue, calculate distance to DNA phosphates
+            source_atoms = protein_atoms if protein_atoms else []
+            target_atoms = [atom for atom in self.dna_atoms if any(p in atom.name for p in ['P', 'O1P', 'O2P'])]
+        else:
+            # This is a DNA residue, no phosphate distance calculation needed
+            return float('inf')
+        
+        if not source_atoms or not target_atoms:
+            return float('inf')
+        
+        # Calculate minimum distance using Biopython's atom distance calculation
+        min_dist = float('inf')
+        for protein_atom in source_atoms:
+            for dna_atom in target_atoms:
+                try:
+                    # Use Biopython's distance calculation (coord vector subtraction + norm)
+                    distance = np.linalg.norm(protein_atom.coord - dna_atom.coord)
+                    min_dist = min(min_dist, distance)
+                except (AttributeError, TypeError):
+                    # Handle cases where coordinates are not available
+                    continue
+        
+        return min_dist
 
 
 @dataclass  
@@ -72,7 +114,7 @@ class AlignmentResult:
 def align_sequences(obs_residues: List, pred_residues: List) -> List[Tuple]:
     """
     Gap-tolerant sequence alignment for experimental structures with missing residues.
-    Uses position-based matching with gap handling to maximize aligned residues.
+    Uses sequence alignment to properly handle gaps and missing residues.
     """
     if not obs_residues or not pred_residues:
         return []
@@ -85,45 +127,112 @@ def align_sequences(obs_residues: List, pred_residues: List) -> List[Tuple]:
     obs_positions = sorted(obs_pos_map.keys())
     pred_positions = sorted(pred_pos_map.keys())
     
-    aligned_pairs = []
-    
     print(f"Gap-tolerant alignment: Obs positions {obs_positions[0]}-{obs_positions[-1]} ({len(obs_positions)} residues)")
     print(f"                       Pred positions {pred_positions[0]}-{pred_positions[-1]} ({len(pred_positions)} residues)")
     
-    # Strategy 1: Direct position matching (works when numbering is consistent)
-    direct_matches = 0
+    # Detect gaps in experimental structure
+    gaps = []
+    for i in range(len(obs_positions)-1):
+        if obs_positions[i+1] - obs_positions[i] > 1:
+            gap_start = obs_positions[i] + 1
+            gap_end = obs_positions[i+1] - 1
+            gaps.append((gap_start, gap_end))
+    
+    if gaps:
+        print(f"Detected gaps in experimental structure: {gaps}")
+    
+    # First try direct position matching for cases without complex gaps
+    direct_matches = []
+    
     for pos in obs_positions:
         if pos in pred_pos_map:
             obs_res = obs_pos_map[pos]
             pred_res = pred_pos_map[pos]
             # Verify sequence identity for the match
             if obs_res.get_resname().strip() == pred_res.get_resname().strip():
-                aligned_pairs.append((obs_res, pred_res))
-                direct_matches += 1
+                direct_matches.append((obs_res, pred_res))
     
-    print(f"Direct position matches: {direct_matches}")
+    print(f"Direct position matches: {len(direct_matches)}")
     
     # If direct matching worked well, use it
-    if direct_matches >= min(len(obs_residues), len(pred_residues)) * 0.7:
-        print(f"Using direct position matching: {len(aligned_pairs)} pairs")
-        return aligned_pairs
+    if len(direct_matches) >= min(len(obs_residues), len(pred_residues)) * 0.8:
+        print(f"Using direct position matching: {len(direct_matches)} pairs")
+        return direct_matches
     
-    # Strategy 2: Sequence-based alignment with gap tolerance
-    print("Direct matching insufficient, using sequence-based alignment with gap handling...")
+    # Strategy 2: Use sequence alignment to handle gaps properly
+    print("Using sequence alignment to handle gaps...")
+    aligned_pairs = align_sequences_with_gaps(obs_residues, pred_residues)
+    
+    print(f"Sequence alignment resulted in: {len(aligned_pairs)} aligned pairs")
+    return aligned_pairs
+
+
+def get_single_letter_code(resname: str) -> str:
+    """
+    Convert 3-letter amino acid code to single letter, handling DNA/RNA nucleotides.
+    """
+    code_map = {
+        'ALA': 'A', 'ARG': 'R', 'ASN': 'N', 'ASP': 'D', 'CYS': 'C',
+        'GLN': 'Q', 'GLU': 'E', 'GLY': 'G', 'HIS': 'H', 'ILE': 'I',
+        'LEU': 'L', 'LYS': 'K', 'MET': 'M', 'PHE': 'F', 'PRO': 'P',
+        'SER': 'S', 'THR': 'T', 'TRP': 'W', 'TYR': 'Y', 'VAL': 'V',
+        # DNA nucleotides
+        'DA': 'A', 'DT': 'T', 'DG': 'G', 'DC': 'C',
+        # RNA nucleotides
+        'A': 'A', 'U': 'U', 'G': 'G', 'C': 'C'
+    }
+    return code_map.get(resname.strip(), 'X')
+
+
+def align_sequences_with_gaps(obs_residues: List, pred_residues: List) -> List[Tuple]:
+    """
+    Use BioPython sequence alignment to properly handle gaps in experimental structures.
+    """
+    # Build sequence strings
+    obs_seq_str = ""
+    pred_seq_str = ""
+    
+    for res in obs_residues:
+        obs_seq_str += get_single_letter_code(res.get_resname())
+    
+    for res in pred_residues:
+        pred_seq_str += get_single_letter_code(res.get_resname())
+    
+    # Create pairwise aligner
+    aligner = PairwiseAligner()
+    aligner.match_score = 2
+    aligner.mismatch_score = -1
+    aligner.open_gap_score = -2
+    aligner.extend_gap_score = -0.5
+    
+    # Perform alignment
+    alignments = aligner.align(obs_seq_str, pred_seq_str)
+    if not alignments:
+        print("No alignment found, falling back to direct position matching")
+        return []
+    
+    best_alignment = alignments[0]  # Get best alignment
+    
+    print(f"Alignment score: {best_alignment.score}")
+    
+    # Map alignment back to residue pairs
     aligned_pairs = []
+    obs_idx = 0
+    pred_idx = 0
     
-    # Create sequence strings and position arrays
-    obs_seq = [res.get_resname().strip() for res in obs_residues]
-    pred_seq = [res.get_resname().strip() for res in pred_residues]
-    
-    # Find alignment segments using dynamic approach
-    alignment_segments = find_alignment_segments(obs_seq, pred_seq, obs_residues, pred_residues)
-    
-    # Collect all aligned pairs from segments
-    for segment in alignment_segments:
-        aligned_pairs.extend(segment['pairs'])
-    
-    print(f"Sequence-based alignment: {len(aligned_pairs)} pairs from {len(alignment_segments)} segments")
+    # Get alignment coordinates to map back to residues
+    for obs_block, pred_block in zip(best_alignment.aligned[0], best_alignment.aligned[1]):
+        obs_start, obs_end = obs_block
+        pred_start, pred_end = pred_block
+        
+        # Align residues in this block
+        block_length = min(obs_end - obs_start, pred_end - pred_start)
+        
+        for i in range(block_length):
+            if obs_start + i < len(obs_residues) and pred_start + i < len(pred_residues):
+                obs_res = obs_residues[obs_start + i]
+                pred_res = pred_residues[pred_start + i]
+                aligned_pairs.append((obs_res, pred_res))
     
     return aligned_pairs
 
@@ -658,3 +767,122 @@ def export_residue_rmsd_csv(residue_rmsds: List[ResidueRMSD], output_path: str):
             unit_class = 'amino_acid' if rmsd.is_protein else 'nucleotide'
             writer.writerow([rmsd.unit_id, rmsd.unit_type, rmsd.chain_id,
                            rmsd.position, rmsd.rmsd, rmsd.atom_count, rmsd.molecule_type, unit_class])
+
+
+def save_aligned_structures(alignment_results: Dict, output_dir, pair_id: str,
+                          experimental_structure: BioStructure, predicted_structure: BioStructure):
+    """
+    Save the aligned structures used for RMSD calculations as superimposed structure files.
+    
+    Args:
+        alignment_results: Dictionary containing alignment results for each frame
+        output_dir: Output directory path
+        pair_id: Structure pair identifier  
+        experimental_structure: Original experimental structure
+        predicted_structure: Original predicted structure
+    """
+    from Bio.PDB import PDBIO
+    from Bio.PDB.Structure import Structure as PDBStructure
+    from pathlib import Path
+    import copy
+    
+    output_dir = Path(output_dir)
+    output_dir.mkdir(exist_ok=True)
+    
+    io = PDBIO()
+    
+    # Create superimposed structure files for each reference frame
+    for frame_name, result in alignment_results.items():
+        if hasattr(result, 'aligned_predicted_structure') and result.aligned_predicted_structure:
+            # Create a combined structure with both experimental (reference) and predicted (aligned)
+            combined_structure = PDBStructure('superimposed')
+            
+            # Add experimental structure as model 0 (reference - will show in one color)
+            exp_model = copy.deepcopy(experimental_structure[0])
+            exp_model.id = 0
+            exp_model.serial_num = 0
+            exp_model.full_id = (f"{pair_id}_experimental",)
+            combined_structure.add(exp_model)
+            
+            # Add aligned predicted structure as model 1 (aligned - will show in different color)
+            pred_model = copy.deepcopy(result.aligned_predicted_structure[0])
+            pred_model.id = 1
+            pred_model.serial_num = 1
+            pred_model.full_id = (f"{pair_id}_predicted_aligned",)
+            combined_structure.add(pred_model)
+            
+            # Save the superimposed structure with custom MODEL records
+            superimposed_file = f"{pair_id}_superimposed_{frame_name}.pdb"
+            output_file_path = output_dir / superimposed_file
+            
+            # Save with custom MODEL identification
+            _save_superimposed_with_model_names(combined_structure, str(output_file_path), pair_id, io)
+            
+            print(f"    Saved superimposed structure: {superimposed_file}")
+        else:
+            print(f"    Warning: No aligned structure available for {frame_name}")
+
+def _save_superimposed_with_model_names(combined_structure, file_path: str, pair_id: str, io):
+    """
+    Save the combined structure with custom MODEL records that include descriptive names.
+    """
+    import tempfile
+    import os
+    
+    # Save to a temporary file first
+    io.set_structure(combined_structure)
+    
+    with tempfile.NamedTemporaryFile(mode='w+', suffix='.pdb', delete=False) as temp_file:
+        temp_file_path = temp_file.name
+        
+    # Save the structure to temporary file
+    io.save(temp_file_path)
+        
+    # Read the temporary file content
+    with open(temp_file_path, 'r') as f:
+        pdb_lines = f.readlines()
+    
+    # Remove temporary file
+    os.unlink(temp_file_path)
+    
+    # Process and write the final file with custom MODEL records
+    with open(file_path, 'w') as f:
+        # Write header information
+        f.write(f"HEADER    SUPERIMPOSED STRUCTURE                    {pair_id}_COMPARISON\n")
+        f.write(f"REMARK   1 MODEL 1: {pair_id}_EXPERIMENTAL (reference structure)\n")
+        f.write(f"REMARK   1 MODEL 2: {pair_id}_PREDICTED_ALIGNED (superimposed structure)\n")
+        f.write("REMARK   1 Models are colored differently in molecular viewers\n")
+        
+        model_num = 1
+        for line in pdb_lines:
+            if line.startswith('MODEL'):
+                if model_num == 1:
+                    f.write(f"MODEL        1 {pair_id}_EXPERIMENTAL\n")
+                elif model_num == 2:
+                    f.write(f"MODEL        2 {pair_id}_PREDICTED_ALIGNED\n")
+                model_num += 1
+            else:
+                f.write(line)
+
+def _add_structure_identification_header(file_path: str, pair_id: str):
+    """
+    Add identification headers to the PDB file to distinguish between experimental and predicted structures.
+    """
+    # Read the original file
+    with open(file_path, 'r') as f:
+        lines = f.readlines()
+    
+    # Create header lines to identify the structures
+    header_lines = [
+        f"HEADER    SUPERIMPOSED STRUCTURE                    {pair_id}_COMPARISON\n",
+        f"REMARK   1 MODEL 0: {pair_id}_EXPERIMENTAL (reference structure)\n", 
+        f"REMARK   1 MODEL 1: {pair_id}_PREDICTED_ALIGNED (superimposed structure)\n",
+        "REMARK   1 Models are colored differently in molecular viewers\n"
+    ]
+    
+    # Write the file with headers
+    with open(file_path, 'w') as f:
+        # Write headers first
+        f.writelines(header_lines)
+        # Write original content
+        f.writelines(lines)

@@ -541,7 +541,7 @@ def main():
                 # Visualization if requested
                 if analysis_flags['visualize']:
                     try:
-                        from biostructbenchmark.visualization.plots import PublicationPlotter
+                        from biostructbenchmark.visualization.residue_plots import PublicationPlotter
                         plotter = PublicationPlotter()
                         
                         # Create multi-frame dashboard

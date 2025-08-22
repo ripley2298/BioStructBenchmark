@@ -22,7 +22,7 @@ except ImportError:
 if MATPLOTLIB_AVAILABLE:
     try:
         from .residue_plots import ResidueVisualizer, create_residue_report, quick_residue_plot
-        from .plots import PublicationPlotter, create_publication_report
+        from .residue_plots import PublicationPlotter, create_publication_report
         from .structure import StructureVisualizer, create_structure_visualization
         from .pca_plots import PCAVisualizer
         _viz_available = True
