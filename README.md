@@ -250,7 +250,6 @@ biostructbenchmark -e ~/experimental/ -p ~/predicted_alphafold3/ --rmsd-only --v
 
 #### `hbond.py` ⭐ **Advanced H-Bond Analysis**
 - **Purpose**: Hydrogen bond network analysis with structural correspondence mapping
-- **Key Innovation**: Fixes false negatives from residue numbering differences between experimental/predicted structures
 - **Features**:
   - Geometric H-bond detection (distance ≤3.5Å, angle ≥120°)
   - Structural correspondence integration for proper bond matching
@@ -367,12 +366,6 @@ Comprehensive DNA structure characterization:
 
 ### 3. Advanced Hydrogen Bond Network Analysis ⭐
 
-**Critical Innovation**: Structural correspondence mapping fixes false negatives
-
-```python
-# Before: 0% conservation rate (false negatives from numbering shifts)
-# After: 56% conservation rate (proper correspondence matching)
-```
 
 **Features**:
 - Geometric H-bond detection (distance ≤3.5Å, D-H-A angle ≥120°)
