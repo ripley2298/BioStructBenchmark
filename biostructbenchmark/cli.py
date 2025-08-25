@@ -192,6 +192,12 @@ Examples:
     )
     
     analysis_group.add_argument(
+        '--hbond',
+        action='store_true',
+        help='Analyze hydrogen bond networks between structures'
+    )
+    
+    analysis_group.add_argument(
         '--visualize',
         action='store_true',
         help='Generate publication-quality plots and visualizations'
@@ -331,6 +337,7 @@ def get_analysis_flags(args: argparse.Namespace) -> Dict[str, bool]:
         'bfactor': args.bfactor or args.all_benchmarks,
         'consensus': args.consensus or args.all_benchmarks,
         'mutations': args.mutations or args.all_benchmarks,
+        'hbond': args.hbond or args.all_benchmarks,
         'visualize': args.visualize or args.all_benchmarks,
         'all_benchmarks': args.all_benchmarks
     }
@@ -389,42 +396,79 @@ def export_multi_frame_results(result, output_dir: Path, format: str = 'both'):
         )
     
     if format in ['json', 'both']:
-        # Create comprehensive JSON summary
+        from datetime import datetime
+        import json
+        import numpy as np
+        
+        def convert_numpy_types(obj):
+            """Convert numpy types to Python native types for JSON serialization"""
+            if isinstance(obj, np.integer):
+                return int(obj)
+            elif isinstance(obj, np.floating):
+                return float(obj)
+            elif isinstance(obj, np.ndarray):
+                return obj.tolist()
+            elif isinstance(obj, dict):
+                return {key: convert_numpy_types(value) for key, value in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_numpy_types(item) for item in obj]
+            else:
+                return obj
+        
+        # Create comprehensive JSON summary with proper type conversion
         summary = {
-            'timestamp': datetime.now().isoformat(),
-            'version': get_version(),
-            'summary': result.get_summary(),
-            'detailed': {
-                'full_structure': {
-                    'overall_rmsd': result.full_structure.overall_rmsd,
-                    'atom_count': result.full_structure.aligned_atom_count,
-                    'residue_count': len(result.full_structure.residue_rmsds),
+            'metadata': {
+                'timestamp': datetime.now().isoformat(),
+                'version': get_version(),
+                'analysis_type': 'multi_frame_dna_protein_complex'
+            },
+            'summary': convert_numpy_types(result.get_summary()),
+            'detailed_analysis': {
+                'global_alignment': {
+                    'description': 'Combined protein + DNA structural alignment',
+                    'overall_rmsd_angstrom': float(result.full_structure.overall_rmsd),
+                    'aligned_atom_count': int(result.full_structure.aligned_atom_count),
+                    'structural_unit_count': len(result.full_structure.residue_rmsds),
                     'protein_residues': len([r for r in result.full_structure.residue_rmsds 
                                             if r.molecule_type == 'protein']),
-                    'dna_residues': len([r for r in result.full_structure.residue_rmsds 
-                                       if r.molecule_type == 'dna']),
-                    'worst_residues': [
-                        {'id': r.residue_id, 'rmsd': r.rmsd}
+                    'dna_nucleotides': len([r for r in result.full_structure.residue_rmsds 
+                                          if r.molecule_type == 'dna']),
+                    'highest_error_units': [
+                        {
+                            'unit_id': r.residue_id, 
+                            'rmsd_angstrom': float(r.rmsd),
+                            'unit_type': r.residue_type,
+                            'molecule_type': r.molecule_type
+                        }
                         for r in sorted(result.full_structure.residue_rmsds, 
                                       key=lambda x: x.rmsd, reverse=True)[:5]
                     ]
                 },
                 'dna_positioning': {
-                    'overall_rmsd': result.dna_to_protein.overall_rmsd,
-                    'atom_count': result.dna_to_protein.aligned_atom_count,
-                    'interpretation': interpret_dna_positioning(result.dna_to_protein.overall_rmsd)
+                    'description': 'DNA positioned relative to protein reference',
+                    'overall_rmsd_angstrom': float(result.dna_to_protein.overall_rmsd),
+                    'aligned_atom_count': int(result.dna_to_protein.aligned_atom_count),
+                    'accuracy_assessment': interpret_dna_positioning(result.dna_to_protein.overall_rmsd)
                 },
-                'dna_standalone': {
-                    'overall_rmsd': result.dna_to_dna.overall_rmsd,
-                    'atom_count': result.dna_to_dna.aligned_atom_count,
-                    'interpretation': interpret_dna_accuracy(result.dna_to_dna.overall_rmsd)
+                'dna_structure': {
+                    'description': 'Standalone DNA structural accuracy',
+                    'overall_rmsd_angstrom': float(result.dna_to_dna.overall_rmsd),
+                    'aligned_atom_count': int(result.dna_to_dna.aligned_atom_count),
+                    'accuracy_assessment': interpret_dna_accuracy(result.dna_to_dna.overall_rmsd)
                 },
-                'comparative_analysis': generate_comparative_analysis(result)
+                'comparative_analysis': convert_numpy_types(generate_comparative_analysis(result))
             }
         }
         
-        with open(output_dir / "multi_frame_analysis.json", 'w') as f:
-            json.dump(summary, f, indent=2)
+        # Export JSON with comprehensive error handling
+        try:
+            with open(output_dir / "multi_frame_analysis.json", 'w') as f:
+                json.dump(summary, f, indent=2, ensure_ascii=False)
+        except TypeError as e:
+            print(f"Warning: JSON serialization issue, applying additional type conversion: {e}")
+            summary = convert_numpy_types(summary)
+            with open(output_dir / "multi_frame_analysis.json", 'w') as f:
+                json.dump(summary, f, indent=2, ensure_ascii=False)
 
 
 def interpret_dna_positioning(rmsd: float) -> str:

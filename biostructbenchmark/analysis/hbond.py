@@ -376,6 +376,109 @@ class HBondAnalyzer:
             predicted_only=predicted_only,
             bond_distance_differences=distance_differences
         )
+
+    def compare_hydrogen_bonds_with_correspondence(self, experimental_hbonds: List[HydrogenBond],
+                                                  predicted_hbonds: List[HydrogenBond],
+                                                  correspondence_map: Dict[str, str],
+                                                  tolerance: float = 0.5) -> HBondComparison:
+        """
+        Compare hydrogen bond networks using structural correspondence mapping
+        
+        This method fixes the critical issue where different residue numbering schemes
+        between experimental and predicted structures cause false negative matches.
+        Instead of direct residue ID matching, it uses the structural alignment
+        correspondence to properly identify equivalent bonds.
+        
+        Args:
+            experimental_hbonds: H-bonds from experimental structure
+            predicted_hbonds: H-bonds from predicted structure  
+            correspondence_map: Maps exp residue IDs to pred residue IDs
+            tolerance: Distance tolerance for matching bonds (Angstroms)
+            
+        Returns:
+            HBondComparison with proper correspondence-based matching
+        """
+        # Create reverse correspondence map (pred -> exp) for efficiency
+        reverse_correspondence = {v: k for k, v in correspondence_map.items()}
+        
+        common_bonds = []
+        experimental_only = []
+        predicted_only = list(predicted_hbonds)  # Start with all predicted bonds
+        distance_differences = {}
+        
+        # Process each experimental bond
+        for exp_hb in experimental_hbonds:
+            matched = False
+            
+            # Check if both donor and acceptor residues have correspondence
+            exp_donor_id = exp_hb.donor_residue
+            exp_acceptor_id = exp_hb.acceptor_residue
+            
+            if exp_donor_id in correspondence_map and exp_acceptor_id in correspondence_map:
+                # Get corresponding predicted residue IDs
+                pred_donor_id = correspondence_map[exp_donor_id]
+                pred_acceptor_id = correspondence_map[exp_acceptor_id]
+                
+                # Look for matching predicted bonds with corresponding residues
+                for i, pred_hb in enumerate(predicted_hbonds):
+                    if (pred_hb.donor_residue == pred_donor_id and 
+                        pred_hb.acceptor_residue == pred_acceptor_id):
+                        
+                        # Found a correspondence match - check if atoms are similar
+                        exp_donor_atom = exp_hb.donor_atom.split(':')[-1]  # Get atom name
+                        exp_acceptor_atom = exp_hb.acceptor_atom.split(':')[-1]
+                        pred_donor_atom = pred_hb.donor_atom.split(':')[-1] 
+                        pred_acceptor_atom = pred_hb.acceptor_atom.split(':')[-1]
+                        
+                        # Match if same atom types or within distance tolerance
+                        if ((exp_donor_atom == pred_donor_atom and exp_acceptor_atom == pred_acceptor_atom) or
+                            abs(pred_hb.distance - exp_hb.distance) <= tolerance):
+                            
+                            # This is a true match
+                            common_bonds.append((exp_hb, pred_hb))
+                            distance_differences[exp_hb.bond_id] = pred_hb.distance - exp_hb.distance
+                            
+                            # Remove from predicted_only list
+                            if pred_hb in predicted_only:
+                                predicted_only.remove(pred_hb)
+                            
+                            matched = True
+                            break
+            
+            if not matched:
+                # Try looser matching - same residue types in correspondence
+                for i, pred_hb in enumerate(predicted_hbonds):
+                    # Check if residue types match even if exact correspondence missing
+                    exp_donor_type = exp_hb.donor_residue.split(':')[1]  # Get residue type
+                    exp_acceptor_type = exp_hb.acceptor_residue.split(':')[1]
+                    pred_donor_type = pred_hb.donor_residue.split(':')[1]
+                    pred_acceptor_type = pred_hb.acceptor_residue.split(':')[1]
+                    
+                    if (exp_donor_type == pred_donor_type and 
+                        exp_acceptor_type == pred_acceptor_type and
+                        abs(pred_hb.distance - exp_hb.distance) <= tolerance):
+                        
+                        # Loose match based on residue types and distance
+                        common_bonds.append((exp_hb, pred_hb))
+                        distance_differences[f"{exp_hb.bond_id}~loose"] = pred_hb.distance - exp_hb.distance
+                        
+                        if pred_hb in predicted_only:
+                            predicted_only.remove(pred_hb)
+                        
+                        matched = True
+                        break
+            
+            if not matched:
+                experimental_only.append(exp_hb)
+        
+        return HBondComparison(
+            experimental_bonds=experimental_hbonds,
+            predicted_bonds=predicted_hbonds,
+            common_bonds=common_bonds,
+            experimental_only=experimental_only,
+            predicted_only=predicted_only,
+            bond_distance_differences=distance_differences
+        )
     
     def calculate_statistics(self, comparison: HBondComparison) -> HBondStatistics:
         """Calculate summary statistics from hydrogen bond comparison"""
@@ -448,6 +551,42 @@ class HBondAnalyzer:
         
         # Compare networks
         comparison = self.compare_hydrogen_bonds(exp_hbonds, pred_hbonds)
+        statistics = self.calculate_statistics(comparison)
+        
+        return comparison, statistics
+
+    def analyze_structures_with_correspondence(self, experimental_path: Path, predicted_path: Path, 
+                                             correspondence_map: Dict[str, str]) -> Tuple[HBondComparison, HBondStatistics]:
+        """
+        Analyze hydrogen bond networks using structural correspondence mapping
+        
+        This method addresses the critical issue where residue numbering differences
+        between experimental and predicted structures cause false negative matches
+        in hydrogen bond comparison.
+        
+        Args:
+            experimental_path: Path to experimental structure
+            predicted_path: Path to predicted structure  
+            correspondence_map: Dict mapping experimental residue IDs to predicted residue IDs
+                               Format: {exp_chain:res_name:num -> pred_chain:res_name:num}
+            
+        Returns:
+            (HBondComparison, HBondStatistics) with proper correspondence-based matching
+        """
+        # Load structures
+        exp_structure = get_structure(experimental_path)
+        pred_structure = get_structure(predicted_path)
+        
+        if not exp_structure or not pred_structure:
+            raise ValueError(f"Could not load structures from {experimental_path} or {predicted_path}")
+        
+        # Find hydrogen bonds in both structures
+        exp_hbonds = self.find_hydrogen_bonds(exp_structure)
+        pred_hbonds = self.find_hydrogen_bonds(pred_structure)
+        
+        # Use correspondence-aware comparison
+        comparison = self.compare_hydrogen_bonds_with_correspondence(
+            exp_hbonds, pred_hbonds, correspondence_map)
         statistics = self.calculate_statistics(comparison)
         
         return comparison, statistics
@@ -594,6 +733,22 @@ class HBondAnalyzer:
     def _export_statistics(self, statistics: HBondStatistics, output_path: Path):
         """Export statistics as JSON"""
         import json
+        import numpy as np
+        
+        def convert_numpy_types(obj):
+            """Convert numpy types to native Python types for JSON serialization"""
+            if isinstance(obj, np.integer):
+                return int(obj)
+            elif isinstance(obj, np.floating):
+                return float(obj)
+            elif isinstance(obj, np.ndarray):
+                return obj.tolist()
+            elif isinstance(obj, dict):
+                return {k: convert_numpy_types(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_numpy_types(item) for item in obj]
+            else:
+                return obj
         
         stats_dict = {
             'total_experimental': statistics.total_experimental,
@@ -607,6 +762,9 @@ class HBondAnalyzer:
             'protein_to_dna_bonds': statistics.protein_to_dna_bonds,
             'dna_to_protein_bonds': statistics.dna_to_protein_bonds
         }
+        
+        # Convert numpy types to native Python types
+        stats_dict = convert_numpy_types(stats_dict)
         
         with open(output_path, 'w') as f:
             json.dump(stats_dict, f, indent=2)

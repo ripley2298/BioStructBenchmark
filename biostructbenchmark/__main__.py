@@ -158,6 +158,12 @@ def run_analyses(exp_path: Path, pred_path: Path, output_dir: Path,
             exp_path, pred_path, output_dir, args
         )
     
+    # Hydrogen bond analysis
+    if flags.get('hbond'):
+        results['hbond'] = run_hydrogen_bond_analysis(
+            exp_path, pred_path, output_dir, args
+        )
+    
     # Visualization
     if flags.get('visualize'):
         results['visualization'] = generate_visualizations(
@@ -171,7 +177,8 @@ def run_multi_frame_alignment(exp_path: Path, pred_path: Path,
                              output_dir: Path, args) -> Optional[Dict]:
     """Run multi-frame alignment analysis"""
     try:
-        from biostructbenchmark.core.alignment import perform_multi_frame_alignment
+        from biostructbenchmark.core.alignment import align_structures_three_frames
+        from biostructbenchmark.core.io import get_structure
         from biostructbenchmark.cli import (
             print_multi_frame_summary,
             export_multi_frame_results
@@ -183,10 +190,30 @@ def run_multi_frame_alignment(exp_path: Path, pred_path: Path,
         # Determine if we should save aligned structures
         alignment_output = output_dir / "alignments" if args.save_aligned else None
         
-        # Perform alignment
-        result = perform_multi_frame_alignment(
-            exp_path, pred_path, alignment_output
-        )
+        # Load structures and perform alignment
+        observed = get_structure(exp_path)
+        predicted = get_structure(pred_path)
+        results_dict = align_structures_three_frames(observed, predicted)
+        
+        # Create expected object structure for CLI compatibility
+        class MultiFrameResult:
+            def __init__(self, results_dict):
+                self.full_structure = results_dict.get('global')
+                self.dna_to_protein = results_dict.get('dna_centric')  # DNA positioned relative to protein
+                self.dna_to_dna = results_dict.get('protein_centric')  # DNA-to-DNA comparison
+                self.results_dict = results_dict  # Keep original for exports
+                
+            def get_summary(self):
+                """Return summary for aggregation"""
+                return {
+                    'global_rmsd': self.full_structure.overall_rmsd if self.full_structure else None,
+                    'dna_positioning_rmsd': self.dna_to_protein.overall_rmsd if self.dna_to_protein else None,
+                    'dna_structure_rmsd': self.dna_to_dna.overall_rmsd if self.dna_to_dna else None,
+                    'aligned_atoms': self.full_structure.aligned_atom_count if self.full_structure else 0,
+                    'residue_count': len(self.full_structure.residue_rmsds) if self.full_structure and self.full_structure.residue_rmsds else 0
+                }
+        
+        result = MultiFrameResult(results_dict)
         
         if result:
             # Print summary if not quiet
@@ -297,6 +324,114 @@ def run_bfactor_analysis(exp_path: Path, pred_path: Path,
         print(f"  ✗ B-factor analysis failed: {e}")
         return None
 
+
+def run_hydrogen_bond_analysis(exp_path: Path, pred_path: Path,
+                              output_dir: Path, args) -> Optional[Dict]:
+    """
+    Run comprehensive hydrogen bond network analysis for DNA-protein complexes.
+    
+    This function performs detailed comparison of hydrogen bond networks between
+    experimental and predicted structures, focusing on protein-DNA interactions
+    critical for binding specificity and structural stability.
+    
+    Args:
+        exp_path (Path): Path to experimental structure file (PDB format)
+        pred_path (Path): Path to predicted structure file (PDB/CIF format)
+        output_dir (Path): Directory where analysis results will be written
+        args: CLI arguments containing analysis parameters
+        
+    Returns:
+        Optional[Dict]: Analysis summary containing:
+            - experimental_bonds: Number of H-bonds in experimental structure
+            - predicted_bonds: Number of H-bonds in predicted structure  
+            - common_bonds: H-bonds present in both structures (shared/conserved)
+            - experimental_only_bonds: H-bonds present only in experimental (missing from prediction)
+            - predicted_only_bonds: H-bonds present only in predicted (false positives)
+            - prediction_accuracy: Fraction of predicted bonds that are correct (0-1)
+            - conservation_rate: Fraction of experimental bonds preserved in prediction (0-1)
+            - mean_distance_difference: Average distance difference for common bonds (Å)
+            - output_dir: Path to detailed results directory
+            
+    Exports:
+        - hydrogen_bonds/: Directory containing detailed H-bond analysis
+        - H-bond comparison tables (CSV format)
+        - Network similarity metrics
+        - Visualization files for H-bond networks
+        
+    Analysis Details:
+        - Distance cutoff: 3.5 Å (configurable)
+        - Angle cutoff: 120° for D-H-A geometry (configurable)
+        - Focuses on protein-DNA interactions
+        - Identifies donor/acceptor atoms for each bond
+        - Calculates geometric parameters (distance, angles)
+        - Provides statistical comparison metrics
+        
+    Note:
+        Critical for understanding DNA-protein binding specificity and
+        validating computational predictions of protein-DNA recognition.
+    """
+    try:
+        from biostructbenchmark.analysis.hbond import HBondAnalyzer
+        
+        if not args.quiet:
+            print("  → Analyzing hydrogen bond networks...")
+        
+        # Get structural correspondence mapping from alignment system
+        from biostructbenchmark.core.alignment import align_structures_three_frames
+        from biostructbenchmark.core.io import get_structure
+        
+        if not args.quiet:
+            print("  → Computing structural correspondence for H-bond matching...")
+            
+        # Load structures and get correspondence mapping
+        observed = get_structure(exp_path)
+        predicted = get_structure(pred_path)
+        alignment_results = align_structures_three_frames(observed, predicted)
+        
+        # Extract correspondence from global alignment for H-bond analysis
+        from biostructbenchmark.core.alignment import create_correspondence_map
+        protein_correspondence = create_correspondence_map(observed, predicted, 'protein')
+        dna_correspondence = create_correspondence_map(observed, predicted, 'dna')
+        
+        # Combine correspondence maps
+        full_correspondence = {**protein_correspondence, **dna_correspondence}
+        
+        if not args.quiet:
+            print(f"  → Found correspondence for {len(full_correspondence)} residue pairs")
+            
+        # Initialize analyzer and run analysis with correspondence
+        analyzer = HBondAnalyzer()
+        comparison, statistics = analyzer.analyze_structures_with_correspondence(
+            exp_path, pred_path, full_correspondence)
+        
+        # Export results
+        hbond_output = output_dir / "hydrogen_bonds"
+        pair_id = f"{exp_path.stem}_vs_{pred_path.stem}"
+        analyzer.export_results(comparison, statistics, hbond_output, pair_id)
+        
+        # Return summary for visualization using correct attribute names  
+        return {
+            'experimental_bonds': len(comparison.experimental_bonds),
+            'predicted_bonds': len(comparison.predicted_bonds),
+            'common_bonds': len(comparison.common_bonds),
+            'experimental_only_bonds': len(comparison.experimental_only),
+            'predicted_only_bonds': len(comparison.predicted_only),
+            'prediction_accuracy': statistics.prediction_accuracy,
+            'conservation_rate': statistics.conservation_rate,
+            'mean_distance_difference': statistics.mean_distance_difference,
+            'output_dir': str(hbond_output)
+        }
+        
+    except ImportError:
+        if args.verbose:
+            print("  ⚠ Hydrogen bond analysis module not available")
+        return None
+    except Exception as e:
+        print(f"  ✗ Hydrogen bond analysis failed: {e}")
+        if args.verbose:
+            import traceback
+            traceback.print_exc()
+        return None
 
 def run_consensus_analysis(exp_path: Path, pred_path: Path, 
                           output_dir: Path, args) -> Optional[Dict]:
@@ -411,6 +546,10 @@ def generate_visualizations(results: Dict, output_dir: Path, args) -> Optional[D
         # Mutation data
         if 'mutations' in results and results['mutations']:
             analysis_data['mutations'] = results['mutations']
+        
+        # Hydrogen bond data
+        if 'hbond' in results and results['hbond']:
+            analysis_data['hbond'] = results['hbond']
         
         # Generate basic summary if we have any data
         if results:

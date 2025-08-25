@@ -65,7 +65,7 @@ class ResidueRMSD:
             source_atoms = protein_atoms if protein_atoms else []
             target_atoms = [atom for atom in self.dna_atoms if any(p in atom.name for p in ['P', 'O1P', 'O2P'])]
         else:
-            # This is a DNA residue, no phosphate distance calculation needed
+            # This is a DNA nucleotide, no phosphate distance calculation needed
             return float('inf')
         
         if not source_atoms or not target_atoms:
@@ -415,7 +415,7 @@ def align_structures_three_frames(observed: BioStructure, predicted: BioStructur
     protein_corr = create_correspondence_map(observed, predicted, 'protein')
     dna_corr = create_correspondence_map(observed, predicted, 'dna')
     
-    print(f"Correspondence: {len(protein_corr)} protein, {len(dna_corr)} DNA")
+    print(f"Correspondence: {len(protein_corr)} protein, {len(dna_corr)} DNA nucleotides")
     
     for ref_frame in ['global', 'dna_centric', 'protein_centric']:
         print(f"\n--- {ref_frame.upper()} ALIGNMENT ---")
@@ -755,18 +755,69 @@ def compare_structures(observed: BioStructure, predicted: BioStructure,
         return align_structures_with_structural_superimposition(observed, predicted, 'global')
 
 
-def export_residue_rmsd_csv(residue_rmsds: List[ResidueRMSD], output_path: str):
-    """Export structural unit RMSD data to CSV file with proper nomenclature"""
+def export_residue_rmsd_csv(residue_rmsds: List[ResidueRMSD], output_path: str, reference_frame: str = ""):
+    """
+    Export structural unit RMSD data to CSV file with proper scientific nomenclature.
+    
+    This function exports detailed per-residue/per-nucleotide RMSD data in a standardized
+    CSV format suitable for further analysis and visualization.
+    
+    Args:
+        residue_rmsds (List[ResidueRMSD]): List of ResidueRMSD objects containing 
+                                          structural unit comparison data
+        output_path (str): Path where the CSV file will be written
+        reference_frame (str, optional): Reference frame used for alignment 
+                                       (e.g., 'global', 'protein_centric', 'dna_centric').
+                                       Added as metadata comment in CSV.
+    
+    CSV Format:
+        - unit_id: Identifier for the structural unit (residue for proteins, base for DNA)
+        - unit_type: Three-letter code (amino acid or nucleotide type)
+        - chain_id: Chain identifier from PDB structure
+        - position: Residue/nucleotide position number
+        - rmsd: Root Mean Square Deviation in Angstroms
+        - atom_count: Number of atoms used in RMSD calculation
+        - molecule_type: 'protein' or 'dna'
+        - unit_class: 'amino_acid' or 'nucleotide' for proper scientific classification
+        
+    Note:
+        Uses proper scientific nomenclature where 'residue' refers to amino acids
+        and 'nucleotide' refers to DNA/RNA units.
+    """
     import csv
+    from pathlib import Path
+    
+    # Ensure output directory exists
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    
     with open(output_path, 'w', newline='') as f:
         writer = csv.writer(f)
-        # Use proper scientific nomenclature in headers
+        
+        # Add metadata comment if reference frame is provided
+        if reference_frame:
+            f.write(f"# Reference frame: {reference_frame}\n")
+            f.write(f"# Total structural units: {len(residue_rmsds)}\n")
+            f.write("# Nomenclature: 'residue' = amino acid, 'nucleotide' = DNA/RNA base\n")
+        
+        # Write headers using proper scientific nomenclature
         writer.writerow(['unit_id', 'unit_type', 'chain_id', 'position',
                         'rmsd', 'atom_count', 'molecule_type', 'unit_class'])
+        
+        # Export data for each structural unit
         for rmsd in residue_rmsds:
+            # Determine proper classification
             unit_class = 'amino_acid' if rmsd.is_protein else 'nucleotide'
-            writer.writerow([rmsd.unit_id, rmsd.unit_type, rmsd.chain_id,
-                           rmsd.position, rmsd.rmsd, rmsd.atom_count, rmsd.molecule_type, unit_class])
+            
+            writer.writerow([
+                rmsd.unit_id,           # Structural unit identifier
+                rmsd.unit_type,         # Three-letter type code  
+                rmsd.chain_id,          # PDB chain identifier
+                rmsd.position,          # Position in sequence
+                rmsd.rmsd,              # RMSD value in Angstroms
+                rmsd.atom_count,        # Number of atoms compared
+                rmsd.molecule_type,     # Molecule classification
+                unit_class              # Scientific classification
+            ])
 
 
 def save_aligned_structures(alignment_results: Dict, output_dir, pair_id: str,
