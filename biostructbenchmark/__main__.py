@@ -164,6 +164,12 @@ def run_analyses(exp_path: Path, pred_path: Path, output_dir: Path,
             exp_path, pred_path, output_dir, args
         )
     
+    # DSSR DNA structural analysis
+    if flags.get('dssr'):
+        results['dssr'] = run_dssr_analysis(
+            exp_path, pred_path, output_dir, args
+        )
+    
     # Visualization
     if flags.get('visualize'):
         results['visualization'] = generate_visualizations(
@@ -483,6 +489,155 @@ def run_mutation_analysis(exp_path: Path, pred_path: Path,
         return None
     except Exception as e:
         print(f"  ✗ Mutation analysis failed: {e}")
+        return None
+
+
+def run_dssr_analysis(exp_path: Path, pred_path: Path,
+                     output_dir: Path, args) -> Optional[Dict]:
+    """
+    Run X3DNA-DSSR analysis for DNA structural parameters comparison
+    
+    Focuses on the 5 most critical parameters for protein-DNA binding interface:
+    1. Base pairs - Number of canonical base pairs
+    2. Helical twist - Average twist per base pair step
+    3. Major groove width - Primary protein-binding interface
+    4. Minor groove width - Affects DNA bending
+    5. Stacking energy - Interface stability indicator
+    
+    Args:
+        exp_path: Path to experimental structure file
+        pred_path: Path to predicted structure file
+        output_dir: Directory for analysis results
+        args: CLI arguments
+        
+    Returns:
+        Dictionary containing DSSR analysis summary or None if failed
+    """
+    try:
+        from biostructbenchmark.analysis.dssr import DSSRAnalyzer
+        
+        if not args.quiet:
+            print("  → Analyzing DNA structural parameters with X3DNA-DSSR...")
+            print("    (5 critical parameters for protein-DNA binding interface)")
+        
+        analyzer = DSSRAnalyzer()
+        
+        # Analyze both structures
+        exp_result = analyzer.analyze_structure(exp_path, "Experimental")
+        pred_result = analyzer.analyze_structure(pred_path, "Predicted")
+        
+        if not exp_result or not pred_result:
+            print("  ⚠ DSSR analysis failed - structures could not be processed")
+            return None
+        
+        # Create output directory
+        dssr_output = output_dir / "dssr_analysis"
+        dssr_output.mkdir(exist_ok=True)
+        
+        # Export individual results
+        import pandas as pd
+        results_df = pd.DataFrame([exp_result.to_dict(), pred_result.to_dict()])
+        
+        # Calculate comparative statistics
+        parameters = ['BasePairs', 'Twist(°)', 'MajorGroove(Å)', 
+                     'MinorGroove(Å)', 'StackingEnergy(kcal/mol)']
+        
+        comparison_stats = {}
+        for param in parameters:
+            # Handle parameter name mapping
+            if param == 'Twist(°)':
+                exp_val = exp_result.helical_twist
+                pred_val = pred_result.helical_twist
+            elif param == 'MajorGroove(Å)':
+                exp_val = exp_result.major_groove_width
+                pred_val = pred_result.major_groove_width
+            elif param == 'MinorGroove(Å)':
+                exp_val = exp_result.minor_groove_width
+                pred_val = pred_result.minor_groove_width
+            elif param == 'StackingEnergy(kcal/mol)':
+                exp_val = exp_result.stacking_energy
+                pred_val = pred_result.stacking_energy
+            elif param == 'BasePairs':
+                exp_val = exp_result.base_pairs
+                pred_val = pred_result.base_pairs
+            
+            difference = pred_val - exp_val
+            
+            # Check thresholds
+            thresholds = {
+                'Twist(°)': 5.0,
+                'MajorGroove(Å)': 0.5,
+                'MinorGroove(Å)': 0.5,
+                'BasePairs': 2.0,
+                'StackingEnergy(kcal/mol)': 2.0
+            }
+            
+            flagged = abs(difference) > thresholds.get(param, 0.5)
+            
+            comparison_stats[param] = {
+                'experimental': exp_val,
+                'predicted': pred_val,
+                'difference': difference,
+                'flagged': flagged
+            }
+        
+        # Export results
+        results_df.to_csv(dssr_output / "dssr_parameters.csv", index=False)
+        
+        # Create comparison report
+        pair_id = f"{exp_path.stem}_vs_{pred_path.stem}"
+        report_path = dssr_output / f"{pair_id}_dssr_comparison.txt"
+        
+        with open(report_path, 'w') as f:
+            f.write("X3DNA-DSSR COMPARISON REPORT\n")
+            f.write("Critical Parameters for Protein-DNA Binding Interface\n")
+            f.write("=" * 60 + "\n\n")
+            
+            for param, stats in comparison_stats.items():
+                status = "⚠️ FLAGGED" if stats['flagged'] else "✓ OK"
+                f.write(f"{param:<20}: {stats['experimental']:.2f} → {stats['predicted']:.2f} "
+                       f"(Δ{stats['difference']:+.2f}) {status}\n")
+            
+            f.write("\nTHRESHOLD CRITERIA:\n")
+            f.write("• Twist deviation > 5°\n")
+            f.write("• Groove width deviation > 0.5 Å\n")
+            f.write("• Base pair count deviation > 2\n")
+            f.write("• Stacking energy deviation > 2.0 kcal/mol\n")
+        
+        if not args.quiet:
+            print("  ✓ DSSR analysis complete")
+            flagged_count = sum(1 for stats in comparison_stats.values() if stats['flagged'])
+            if flagged_count > 0:
+                print(f"    ⚠️ {flagged_count}/{len(parameters)} parameters flagged for significant deviations")
+            else:
+                print(f"    ✓ All {len(parameters)} parameters within acceptable thresholds")
+        
+        # Return summary for aggregation
+        flagged_count = sum(1 for stats in comparison_stats.values() if stats['flagged'])
+        return {
+            'experimental_base_pairs': exp_result.base_pairs,
+            'predicted_base_pairs': pred_result.base_pairs,
+            'experimental_twist': exp_result.helical_twist,
+            'predicted_twist': pred_result.helical_twist,
+            'experimental_major_groove': exp_result.major_groove_width,
+            'predicted_major_groove': pred_result.major_groove_width,
+            'experimental_minor_groove': exp_result.minor_groove_width,
+            'predicted_minor_groove': pred_result.minor_groove_width,
+            'experimental_stacking_energy': exp_result.stacking_energy,
+            'predicted_stacking_energy': pred_result.stacking_energy,
+            'flagged_parameters': flagged_count,
+            'output_dir': str(dssr_output)
+        }
+        
+    except ImportError:
+        if args.verbose:
+            print("  ⚠ X3DNA-DSSR module not available")
+        return None
+    except Exception as e:
+        print(f"  ✗ DSSR analysis failed: {e}")
+        if args.verbose:
+            import traceback
+            traceback.print_exc()
         return None
 
 

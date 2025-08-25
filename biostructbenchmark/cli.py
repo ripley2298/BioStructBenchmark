@@ -198,6 +198,12 @@ Examples:
     )
     
     analysis_group.add_argument(
+        '--dssr',
+        action='store_true',
+        help='Analyze DNA structural parameters using X3DNA-DSSR (focuses on 5 critical protein-DNA binding parameters)'
+    )
+    
+    analysis_group.add_argument(
         '--visualize',
         action='store_true',
         help='Generate publication-quality plots and visualizations'
@@ -338,6 +344,7 @@ def get_analysis_flags(args: argparse.Namespace) -> Dict[str, bool]:
         'consensus': args.consensus or args.all_benchmarks,
         'mutations': args.mutations or args.all_benchmarks,
         'hbond': args.hbond or args.all_benchmarks,
+        'dssr': args.dssr or args.all_benchmarks,
         'visualize': args.visualize or args.all_benchmarks,
         'all_benchmarks': args.all_benchmarks
     }

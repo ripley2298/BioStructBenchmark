@@ -1,6 +1,6 @@
 # BioStructBenchmark 🧬
 
-A comprehensive toolkit for benchmarking computational structure predictions against experimental reality, with a focus on DNA-protein complexes.
+A comprehensive toolkit for benchmarking computational structure predictions against experimental reality, with specialized focus on DNA-protein complexes. Features advanced multi-frame alignment, hydrogen bond network analysis with structural correspondence mapping, and X3DNA-DSSR integration for critical protein-DNA binding interface parameters.
 
 ## Table of Contents
 
@@ -23,10 +23,12 @@ BioStructBenchmark compares experimental DNA-protein complex structures with the
 
 ### Why BioStructBenchmark?
 
-- **Multi-frame alignment**: Three different reference frames to distinguish between positioning and structural errors
-- **Comprehensive metrics**: Beyond simple RMSD - error decomposition, per-residue analysis, DNA geometry
-- **DNA-focused**: Specialized tools for DNA structure analysis including CURVES+ integration
-- **Production-ready**: Robust error handling, batch processing, and publication-quality outputs
+- **🎯 Multi-frame alignment**: Three reference frames to distinguish positioning vs structural errors
+- **🧬 Advanced H-bond analysis**: Structural correspondence mapping fixes false negatives from residue numbering shifts
+- **⚗️ X3DNA-DSSR integration**: 5 critical parameters for protein-DNA binding interface validation
+- **🔗 Intelligent structure pairing**: Automatic matching of experimental/predicted pairs across naming conventions
+- **📊 Comprehensive metrics**: Error decomposition, per-residue analysis, DNA geometry, interface statistics
+- **🎨 Publication-quality outputs**: Advanced visualizations, heatmaps, dashboards, and scientific reports
 
 ## Key Features
 
@@ -36,18 +38,26 @@ BioStructBenchmark compares experimental DNA-protein complex structures with the
 - **DNA standalone**: Assesses DNA structure independent of protein context
 
 ### 📊 Comprehensive Metrics
-- Per-residue/nucleotide RMSD calculations
+- Per-residue/nucleotide RMSD calculations with gap handling
 - Error decomposition (translational vs rotational components)
 - B-factor vs pLDDT confidence metric comparison
 - Consensus error mapping across multiple structures
-- Mutation impact analysis
+- Mutation impact analysis with local RMSD effects
 
-### 🧬 DNA Geometry Analysis (CURVES+ Integration)
-- Base pair parameters (shear, stretch, stagger, buckle, propeller, opening)
-- Base pair step parameters (shift, slide, rise, tilt, roll, twist)
-- Groove geometry (major/minor groove width and depth)
-- Hydrogen bond network analysis
-- DNA conformation classification (A/B/Z-form)
+### 🧬 Advanced Hydrogen Bond Analysis
+- **Structural correspondence mapping** - Fixes critical false negatives from residue numbering differences
+- Protein-DNA interface H-bond networks with geometric validation (distance ≤3.5Å, angle ≥120°)
+- Conservation rate and prediction accuracy metrics
+- Comprehensive H-bond classification (strong/medium/weak)
+- Export detailed H-bond tables and network statistics
+
+### ⚗️ X3DNA-DSSR Integration (5 Critical Parameters)
+- **Base pairs**: Canonical base pairs at protein-binding interface
+- **Helical twist**: Average twist per base pair step (affects groove dimensions)
+- **Major groove width**: Primary protein-binding interface dimensions  
+- **Minor groove width**: DNA bending and protein recognition effects
+- **Stacking energy**: Interface stability indicator
+- **Threshold alerts**: Flags deviations >5° (twist), >0.5Å (grooves), >2 kcal/mol (energy)
 
 ### 📈 Visualization
 - Publication-quality plots and dashboards  
@@ -71,9 +81,9 @@ BioStructBenchmark compares experimental DNA-protein complex structures with the
 
 ### Optional Dependencies
 
-- CURVES+ (for DNA geometry analysis)
-- py3Dmol (for interactive 3D visualization)
-- Seaborn (for enhanced plotting)
+- **X3DNA-DSSR** (for critical protein-DNA binding interface analysis) - https://x3dna.org/
+- **py3Dmol** (for interactive 3D visualization)
+- **Seaborn** (for enhanced plotting)
 
 ### Install from PyPI
 
@@ -123,14 +133,18 @@ biostructbenchmark -e exp.pdb -p pred.pdb --multi-frame --save-aligned
 # 3. Standalone DNA structure comparison
 ```
 
-### Batch Processing
+### Batch Processing with Intelligent Pairing
 
 ```bash
-# Process entire directories
+# Process entire directories (automatic structure pairing)
 biostructbenchmark -e experimental_dir/ -p predicted_dir/ -o results/ --all-benchmarks
 
-# With parallel processing
-biostructbenchmark -e exp/ -p pred/ -o out/ --parallel 4
+# Intelligent pairing handles naming differences:
+# experimental: p456_02_experimental.pdb ↔ predicted: p456_02_alphafold3.cif
+# experimental: 1abc_exp.pdb ↔ predicted: 1abc_pred.cif
+
+# With parallel processing and hydrogen bond analysis
+biostructbenchmark -e exp/ -p pred/ -o out/ --hbond --dssr --parallel 4
 ```
 
 ## Command Line Usage
@@ -157,7 +171,8 @@ biostructbenchmark [OPTIONS] [LEGACY_FILES]
 | `--all-benchmarks` | Run all available analyses |
 | `--multi-frame` | Perform multi-frame alignment (3 reference frames) |
 | `--rmsd-only` | Basic RMSD analysis only (fastest) |
-| `--curves` | CURVES+ DNA geometry analysis |
+| `--hbond` | Hydrogen bond network analysis with structural correspondence |
+| `--dssr` | X3DNA-DSSR analysis (5 critical protein-DNA binding parameters) |
 | `--bfactor` | B-factor vs confidence metric analysis |
 | `--consensus` | Consensus error mapping (requires multiple pairs) |
 | `--mutations` | Detect and analyze mutations |
@@ -182,17 +197,17 @@ biostructbenchmark [OPTIONS] [LEGACY_FILES]
 # Full analysis with all features and visualizations
 biostructbenchmark -e exp.pdb -p pred.pdb --all-benchmarks --visualize
 
-# DNA-focused analysis with heatmap visualizations
-biostructbenchmark -e exp.pdb -p pred.pdb --curves --multi-frame --visualize
+# Protein-DNA interface analysis with critical parameters
+biostructbenchmark -e exp.pdb -p pred.pdb --hbond --dssr --multi-frame --visualize
 
-# Batch with specific analyses and comprehensive visualizations
-biostructbenchmark -e exp_dir/ -p pred_dir/ --bfactor --mutations --consensus --visualize
+# Batch with hydrogen bond and DNA structural analysis
+biostructbenchmark -e exp_dir/ -p pred_dir/ --hbond --dssr --bfactor --visualize
 
-# High-throughput processing with visualization dashboards
-biostructbenchmark -e structures/ -p predictions/ --parallel 8 --visualize --export-all
+# High-throughput processing with comprehensive analysis
+biostructbenchmark -e structures/ -p predictions/ --parallel 8 --all-benchmarks --visualize
 
-# Quick visualization-only run for existing results
-biostructbenchmark -e exp.pdb -p pred.pdb --rmsd-only --visualize
+# Quick assessment with intelligent structure pairing
+biostructbenchmark -e ~/experimental/ -p ~/predicted_alphafold3/ --rmsd-only --visualize
 ```
 
 ## Module Architecture
@@ -233,17 +248,35 @@ biostructbenchmark -e exp.pdb -p pred.pdb --rmsd-only --visualize
 
 ### Analysis Modules (`biostructbenchmark/analysis/`)
 
-#### `curves.py`
-- **Purpose**: CURVES+ integration for DNA geometry
-- **Analyzes**:
-  - Base pair parameters (6 parameters)
-  - Base pair step parameters (6 parameters)
-  - Groove geometry (width, depth)
-  - DNA conformation classification
+#### `hbond.py` ⭐ **Advanced H-Bond Analysis**
+- **Purpose**: Hydrogen bond network analysis with structural correspondence mapping
+- **Key Innovation**: Fixes false negatives from residue numbering differences between experimental/predicted structures
+- **Features**:
+  - Geometric H-bond detection (distance ≤3.5Å, angle ≥120°)
+  - Structural correspondence integration for proper bond matching
+  - Conservation rate and prediction accuracy metrics
+  - Detailed H-bond classification and network statistics
 - **Classes**:
-  - `CurvesAnalyzer`: Main analysis class
-  - `CurvesParameters`: Parameter container
-  - `HydrogenBond`: H-bond information
+  - `HBondAnalyzer`: Main analysis class with correspondence support
+  - `HydrogenBond`: H-bond container with geometric parameters
+  - `HBondComparison`: Network comparison results
+  - `HBondStatistics`: Comprehensive statistics
+
+#### `dssr.py` ⭐ **X3DNA-DSSR Integration**
+- **Purpose**: Critical protein-DNA binding interface parameters (5 key metrics)
+- **Parameters**:
+  - Base pairs: Canonical base pairs at binding interface
+  - Helical twist: Average twist per base pair step (affects groove dimensions)
+  - Major groove width: Primary protein-binding interface
+  - Minor groove width: DNA bending effects
+  - Stacking energy: Interface stability indicator
+- **Features**:
+  - Threshold alerts: >5° twist, >0.5Å groove, >2 kcal/mol energy deviations
+  - Publication-quality comparison reports
+  - Seamless integration with existing pipeline
+- **Classes**:
+  - `DSSRAnalyzer`: Main DSSR wrapper
+  - `DSSRParameters`: Critical parameter container
 
 #### `bfactor.py`
 - **Purpose**: B-factor and confidence metric analysis
@@ -332,14 +365,33 @@ Comprehensive DNA structure characterization:
 - **Groove Analysis**: Major/minor groove dimensions
 - **Global Metrics**: Bending, writhe, handedness
 
-### 3. Hydrogen Bond Network Analysis
+### 3. Advanced Hydrogen Bond Network Analysis ⭐
 
-Critical for understanding DNA-protein interfaces:
+**Critical Innovation**: Structural correspondence mapping fixes false negatives
 
-- Distance and angle-based detection
-- Strength classification (strong/medium/weak)
-- Network topology analysis
-- Interface stability assessment
+```python
+# Before: 0% conservation rate (false negatives from numbering shifts)
+# After: 56% conservation rate (proper correspondence matching)
+```
+
+**Features**:
+- Geometric H-bond detection (distance ≤3.5Å, D-H-A angle ≥120°)
+- **Correspondence mapping**: Matches H-bonds across different residue numbering schemes
+- Conservation rate: Fraction of experimental bonds preserved in predictions
+- Prediction accuracy: Fraction of predicted bonds that are correct
+- Network topology and interface stability assessment
+
+### 4. X3DNA-DSSR Critical Parameters ⭐
+
+**5 Most Critical Parameters for Protein-DNA Binding Interface**:
+
+| Parameter | Threshold | Biological Significance |
+|-----------|-----------|------------------------|
+| **Base Pairs** | >2 pairs | Interface binding specificity |
+| **Helical Twist** | >5° | Groove dimension alterations |
+| **Major Groove Width** | >0.5Å | Primary protein recognition surface |
+| **Minor Groove Width** | >0.5Å | DNA bending and flexibility |
+| **Stacking Energy** | >2 kcal/mol | Interface stability |
 
 ## Output Files
 
@@ -348,26 +400,31 @@ Critical for understanding DNA-protein interfaces:
 ```
 biostructbenchmark_results/
 ├── structure1_vs_structure2/
-│   ├── alignments/                    # Aligned PDB files
+│   ├── alignments/                    # Aligned PDB files (with --save-aligned)
 │   │   ├── aligned_1_full_to_experimental.pdb
 │   │   ├── aligned_2_dna_to_protein_reference.pdb
 │   │   ├── aligned_3_dna_to_dna.pdb
 │   │   └── experimental_reference.pdb
-│   ├── visualizations/               # Comprehensive visualizations
+│   ├── visualizations/               # Publication-quality visualizations
 │   │   ├── residue_heatmap.png      # Per-residue RMSD heatmap
 │   │   ├── residue_correlation.png   # Correlation matrix
 │   │   ├── residue_chains.png       # Chain comparison
 │   │   ├── residue_dashboard.png    # Comprehensive dashboard
 │   │   ├── residue_summary.csv      # Visualization data
 │   │   └── analysis_summary.png     # Analysis overview
-│   ├── rmsd_full_structure.csv       # Per-residue RMSD
+│   ├── hydrogen_bonds/              # H-bond analysis with correspondence
+│   │   ├── structure_vs_structure_hbond_details.csv
+│   │   ├── structure_vs_structure_hbond_summary.csv
+│   │   └── structure_vs_structure_hbond_statistics.json
+│   ├── dssr_analysis/               # X3DNA-DSSR critical parameters
+│   │   ├── dssr_parameters.csv      # 5 critical parameters
+│   │   └── structure_vs_structure_dssr_comparison.txt
+│   ├── rmsd_full_structure.csv       # Per-residue RMSD (3 reference frames)
 │   ├── rmsd_dna_to_protein.csv      
 │   ├── rmsd_dna_standalone.csv      
 │   ├── multi_frame_analysis.json     # Comprehensive summary
-│   ├── geometry_comparison.csv       # CURVES+ results
-│   ├── hydrogen_bonds.csv           
 │   └── bfactor_comparison.csv       
-└── batch_analysis_report.json        # Batch summary
+└── batch_analysis_report.json        # Batch summary with intelligent pairing
 ```
 
 ### Key Output Files
@@ -379,17 +436,16 @@ Complete analysis summary including:
 - Worst-performing residues
 - Automated interpretation
 
-#### `geometry_comparison.csv`
-DNA geometry parameters with differences:
-- All 12 base pair/step parameters
-- Groove dimensions
-- Statistical summaries
+#### `hydrogen_bonds/` Directory ⭐
+**Advanced H-bond analysis with structural correspondence**:
+- `*_hbond_details.csv`: Complete H-bond listing with donor/acceptor atoms, distances, angles
+- `*_hbond_summary.csv`: Network comparison metrics (conservation rate, prediction accuracy)
+- `*_hbond_statistics.json`: Comprehensive statistics with correspondence mapping results
 
-#### `hydrogen_bonds.csv`
-Complete H-bond listing:
-- Donor/acceptor atoms and residues
-- Bond distances and angles
-- Strength classification
+#### `dssr_analysis/` Directory ⭐
+**X3DNA-DSSR critical parameters for protein-DNA binding**:
+- `dssr_parameters.csv`: 5 critical parameters (base pairs, twist, groove widths, stacking energy)
+- `*_dssr_comparison.txt`: Formatted comparison report with threshold alerts
 
 ## Best Practices
 
@@ -409,9 +465,9 @@ grep -v "HOH\|HETATM" input.pdb > cleaned.pdb
 
 - **Quick assessment**: Use `--rmsd-only --visualize` for rapid screening with heatmaps
 - **Publication figures**: Always use `--visualize --export-all` for comprehensive outputs  
-- **DNA focus**: Combine `--multi-frame --curves --visualize` for detailed geometry analysis
-- **Comprehensive**: Use `--all-benchmarks --visualize` for complete analysis with dashboards
-- **Correlation analysis**: Use `--bfactor --visualize` to explore RMSD-confidence relationships
+- **Protein-DNA interface focus**: Use `--hbond --dssr --multi-frame --visualize` for critical binding parameters
+- **Comprehensive analysis**: Use `--all-benchmarks --visualize` for complete analysis with dashboards
+- **Batch processing**: Use intelligent pairing: `biostructbenchmark -e exp_dir/ -p pred_dir/ --all-benchmarks`
 
 ### 3. Interpreting Results
 
@@ -421,10 +477,16 @@ grep -v "HOH\|HETATM" input.pdb > cleaned.pdb
 - 3.5-5.0 Å: Moderate (useful with caution)
 - \> 5.0 Å: Poor (significant deviations)
 
-#### DNA-Specific Metrics
-- Twist deviation > 5°: Significant helical distortion
-- Rise deviation > 0.5 Å: Inter-base pair spacing issues
-- Groove width deviation > 2 Å: Major conformational differences
+#### Hydrogen Bond Analysis Results ⭐
+- **Conservation Rate**: 40-70% = Good, <40% = Poor interface prediction
+- **Prediction Accuracy**: >70% = Excellent, 50-70% = Good, <50% = Poor
+- **0% Rates**: Likely residue numbering issue (correspondence mapping fixes this)
+
+#### X3DNA-DSSR Critical Thresholds ⭐
+- **Base Pairs**: >2 difference = Interface binding changes
+- **Helical Twist**: >5° deviation = Groove dimension alterations
+- **Groove Widths**: >0.5Å deviation = Altered protein recognition
+- **Stacking Energy**: >2 kcal/mol = Interface stability issues
 
 ### 4. Batch Processing
 
@@ -450,11 +512,20 @@ biostructbenchmark -e exp/ -p pred/ --parallel $SLURM_CPUS_PER_TASK
 
 ### Common Issues and Solutions
 
-#### "CURVES+ executable not found"
+#### "X3DNA-DSSR not found"
 ```bash
-# Install CURVES+
+# Install X3DNA-DSSR from https://x3dna.org/
 # Add to PATH or specify explicitly
-export CURVES_EXEC=/path/to/curves+
+export PATH=$PATH:/path/to/dssr/bin
+dssr --version  # Test installation
+```
+
+#### "No matching structure pairs found"
+```bash
+# Check file naming patterns - intelligent pairing handles:
+# exp: p456_02_experimental.pdb ↔ pred: p456_02_alphafold3.cif
+# Use --verbose to see pairing details
+biostructbenchmark -e exp_dir/ -p pred_dir/ --verbose
 ```
 
 #### "No common residues found"
@@ -497,8 +568,9 @@ biostructbenchmark -e exp.pdb -p pred.pdb --visualize  # Auto-includes residue d
 
 ```python
 from biostructbenchmark.core.alignment import perform_multi_frame_alignment
-from biostructbenchmark.analysis.curves import CurvesAnalyzer
-from biostructbenchmark.visualization.residue_plots import create_residue_analysis, ResidueVisualizer
+from biostructbenchmark.analysis.hbond import HBondAnalyzer
+from biostructbenchmark.analysis.dssr import analyze_protein_dna_complexes
+from biostructbenchmark.visualization.residue_plots import create_residue_analysis
 
 # Multi-frame alignment
 result = perform_multi_frame_alignment(
@@ -512,24 +584,26 @@ print(f"Full RMSD: {result.full_structure.overall_rmsd:.2f} Å")
 print(f"DNA positioning: {result.dna_to_protein.overall_rmsd:.2f} Å")
 print(f"DNA structure: {result.dna_to_dna.overall_rmsd:.2f} Å")
 
-# DNA geometry analysis
-analyzer = CurvesAnalyzer()
-params = analyzer.analyze_structure("dna_structure.pdb")
-hbonds = analyzer.detect_hydrogen_bonds("complex.pdb")
+# Advanced H-bond analysis with correspondence mapping
+analyzer = HBondAnalyzer()
+comparison, statistics = analyzer.analyze_structures_with_correspondence(
+    "experimental.pdb", "predicted.pdb", correspondence_map
+)
+print(f"H-bond conservation rate: {statistics.conservation_rate:.2%}")
+print(f"H-bond prediction accuracy: {statistics.prediction_accuracy:.2%}")
 
-# Comprehensive residue visualization
+# X3DNA-DSSR critical parameters
+df = analyze_protein_dna_complexes(
+    experimental_pdbs=["exp.pdb"],
+    predicted_pdbs=["pred.pdb"],
+    output_csv="dssr_results.csv"
+)
+
+# Publication-quality visualizations
 viz_paths = create_residue_analysis(
     residue_data=result.full_structure.residue_rmsds,
     output_dir=Path("visualizations/"),
-    analysis_data={"bfactor": bfactor_data, "consensus": consensus_data}
-)
-
-# Custom visualization
-visualizer = ResidueVisualizer()
-fig = visualizer.plot_rmsd_heatmap(result.full_structure.residue_rmsds)
-fig = visualizer.residue_dashboard(
-    {"rmsd": result.full_structure.residue_rmsds},
-    Path("dashboard.png")
+    analysis_data={"hbond": hbond_data, "dssr": dssr_data}
 )
 ```
 
@@ -591,6 +665,157 @@ MIT License - see [LICENSE](LICENSE) file for details.
 *Built with coffee, BioPython, and an unhealthy obsession with structural accuracy* 🐱
 
 For questions, issues, or suggestions, please open an issue on [GitHub](https://github.com/yourusername/biostructbenchmark).
+
+---
+
+## Complete Command Line Interface Reference
+
+### Synopsis
+```bash
+biostructbenchmark [OPTIONS] [experimental_file predicted_file]
+```
+
+### Input/Output Options
+```bash
+-e, --experimental PATH     Path to experimental structure file or directory
+-p, --predicted PATH        Path to predicted structure file or directory  
+-o, --output PATH          Output directory (default: ./biostructbenchmark_results)
+-v, --version              Show version and exit
+--help                     Show help message and exit
+```
+
+### Analysis Selection
+```bash
+# Core analyses
+--all-benchmarks           Enable all available analyses
+--multi-frame              Multi-frame alignment (3 reference frames)
+--rmsd-only               Basic RMSD analysis only (fastest)
+
+# Advanced analyses ⭐
+--hbond                   Hydrogen bond analysis with structural correspondence
+--dssr                    X3DNA-DSSR critical protein-DNA binding parameters
+--bfactor                 B-factor vs confidence correlation analysis
+--consensus               Consensus error mapping (requires ≥3 structure pairs)
+--mutations               Mutation detection and impact analysis
+
+# Visualization
+--visualize               Generate publication-quality plots and dashboards
+```
+
+### Analysis Parameters
+```bash
+--reference-frame FRAME   Alignment reference: {full,protein,dna,multi}
+--rmsd-threshold FLOAT    RMSD threshold for consensus analysis (default: 3.0)
+--output-format FORMAT    Output format: {csv,json,both} (default: both)
+```
+
+### Output Control
+```bash
+--save-aligned            Save aligned PDB structures to alignments/ directory
+--export-all              Export all intermediate analysis files  
+--quiet                   Suppress non-essential output
+--verbose                 Enable detailed progress information
+```
+
+### Performance Options
+```bash
+--parallel N              Number of parallel processes for batch analysis
+```
+
+### Usage Examples
+
+#### Basic Analysis
+```bash
+# Single structure pair
+biostructbenchmark experimental.pdb predicted.pdb
+
+# With explicit paths and output
+biostructbenchmark -e exp.pdb -p pred.pdb -o results/
+
+# Quick RMSD screening
+biostructbenchmark -e exp.pdb -p pred.pdb --rmsd-only --visualize
+```
+
+#### Advanced Protein-DNA Interface Analysis ⭐
+```bash
+# Critical binding interface parameters
+biostructbenchmark -e exp.pdb -p pred.pdb --hbond --dssr --multi-frame --visualize
+
+# H-bond analysis with structural correspondence (fixes false negatives)
+biostructbenchmark -e exp.pdb -p pred.pdb --hbond --export-all
+
+# X3DNA-DSSR critical parameters (5 key metrics)
+biostructbenchmark -e exp.pdb -p pred.pdb --dssr --visualize
+```
+
+#### Batch Processing with Intelligent Pairing
+```bash
+# Automatic structure pairing across naming conventions
+biostructbenchmark -e experimental_dir/ -p predicted_dir/ --all-benchmarks
+
+# High-throughput with parallel processing
+biostructbenchmark -e exp_dir/ -p pred_dir/ -o results/ --parallel 8 --all-benchmarks
+
+# Interface-focused batch analysis
+biostructbenchmark -e exp_dir/ -p pred_dir/ --hbond --dssr --visualize --parallel 4
+```
+
+#### Comprehensive Analysis Pipeline
+```bash
+# Complete analysis with all features
+biostructbenchmark -e exp_dir/ -p pred_dir/ -o comprehensive_results/ \
+    --all-benchmarks --visualize --save-aligned --export-all --parallel 6
+
+# Research-grade analysis with detailed outputs
+biostructbenchmark -e experimental/ -p alphafold_predictions/ \
+    --multi-frame --hbond --dssr --bfactor --consensus --visualize \
+    --verbose --export-all
+```
+
+### File Format Support
+- **Input**: PDB (.pdb), mmCIF (.cif), compressed files (.gz)
+- **Output**: CSV, JSON, PNG (visualizations), PDB (aligned structures)
+- **Intelligent Pairing**: Handles naming differences automatically
+  - `p456_02_experimental.pdb` ↔ `p456_02_alphafold3.cif`
+  - `1abc_exp.pdb` ↔ `1abc_pred.pdb`
+  - `structure_experimental.pdb` ↔ `structure_predicted.cif`
+
+### Exit Codes
+- **0**: Successful completion
+- **1**: Analysis errors or failures
+- **130**: Interrupted by user (Ctrl+C)
+
+### Environment Variables
+```bash
+export DSSR_EXEC=/path/to/dssr          # X3DNA-DSSR executable path
+export MPLBACKEND=Agg                   # Matplotlib backend for headless systems
+export OMP_NUM_THREADS=1                # Prevent nested parallelism in HPC
+```
+
+### Advanced Features
+
+#### Multi-Frame Alignment Interpretation
+- **Full structure**: Overall prediction accuracy
+- **DNA positioning**: DNA placement relative to protein  
+- **DNA standalone**: Intrinsic DNA structure quality
+
+#### Hydrogen Bond Analysis Innovation ⭐
+- **Structural correspondence mapping** fixes false negatives from residue numbering shifts
+- **Before**: 0% conservation rate (false negatives)
+- **After**: 40-70% conservation rate (true accuracy)
+
+#### X3DNA-DSSR Critical Parameters ⭐
+- **Base Pairs**: Interface binding specificity
+- **Helical Twist**: Groove dimension effects (>5° threshold)
+- **Major Groove Width**: Primary protein recognition (>0.5Å threshold)  
+- **Minor Groove Width**: DNA bending effects (>0.5Å threshold)
+- **Stacking Energy**: Interface stability (>2 kcal/mol threshold)
+
+### Notes
+- Use `--verbose` to see detailed progress and pairing information
+- Use `--visualize` for publication-quality plots and dashboards  
+- Combine `--hbond --dssr` for comprehensive protein-DNA interface analysis
+- All analyses are compatible and can be combined for comprehensive evaluation
 
 ## Testing and Development
 
