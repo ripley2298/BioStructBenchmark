@@ -588,6 +588,17 @@ def run_dssr_analysis(exp_path: Path, pred_path: Path,
         pair_id = f"{exp_path.stem}_vs_{pred_path.stem}"
         report_path = dssr_output / f"{pair_id}_dssr_comparison.txt"
         
+        def format_param_value(value, param):
+            """Format parameter values with appropriate significant figures"""
+            if 'BasePairs' in param:
+                return f"{value:.0f}"
+            elif 'Twist' in param or 'Energy' in param:
+                return f"{value:.1f}"
+            elif 'Groove' in param:
+                return f"{value:.2f}"
+            else:
+                return f"{value:.2f}"
+        
         with open(report_path, 'w') as f:
             f.write("X3DNA-DSSR COMPARISON REPORT\n")
             f.write("Critical Parameters for Protein-DNA Binding Interface\n")
@@ -595,8 +606,12 @@ def run_dssr_analysis(exp_path: Path, pred_path: Path,
             
             for param, stats in comparison_stats.items():
                 status = "⚠️ FLAGGED" if stats['flagged'] else "✓ OK"
-                f.write(f"{param:<20}: {stats['experimental']:.2f} → {stats['predicted']:.2f} "
-                       f"(Δ{stats['difference']:+.2f}) {status}\n")
+                exp_val = format_param_value(stats['experimental'], param)
+                pred_val = format_param_value(stats['predicted'], param)
+                diff_val = f"{stats['difference']:+.1f}" if 'Twist' in param or 'Energy' in param else f"{stats['difference']:+.2f}"
+                
+                f.write(f"{param:<20}: {exp_val} → {pred_val} "
+                       f"(Δ{diff_val}) {status}\n")
             
             f.write("\nTHRESHOLD CRITERIA:\n")
             f.write("• Twist deviation > 5°\n")
@@ -800,6 +815,30 @@ def generate_batch_report(all_results: list, failed_pairs: list, output_dir: Pat
             json.dump(report, f, indent=2)
         
         print(f"\nBatch report saved to: {report_path}")
+        
+        # Generate DSSR Dataset Summary if DSSR results are available
+        dssr_results = []
+        for result in all_results:
+            if 'results' in result and 'dssr' in result['results'] and result['results']['dssr']:
+                dssr_results.append(result)
+        
+        if dssr_results:
+            try:
+                from biostructbenchmark.analysis.dssr import generate_dataset_summary_report
+                print(f"\n🧬 Generating comprehensive DSSR dataset summary for {len(dssr_results)} structures...")
+                summary_stats = generate_dataset_summary_report(dssr_results, output_dir)
+                
+                # Also print key findings to console
+                if 'key_findings' in summary_stats:
+                    print(f"\n🚨 Key Findings:")
+                    print(f"   • {summary_stats['key_findings']['structures_with_bp_loss']}/{len(dssr_results)} structures show base pair loss")
+                    print(f"   • {summary_stats['key_findings']['predicted_no_stacking']}/{len(dssr_results)} predicted structures lack stacking interactions")
+                    print(f"   • Most problematic parameter: {summary_stats['key_findings']['most_problematic_param'].replace('_', ' ').title()}")
+                
+            except ImportError:
+                print("⚠️  DSSR summary generation not available")
+            except Exception as e:
+                print(f"⚠️  Could not generate DSSR summary: {e}")
         
     except Exception as e:
         print(f"Warning: Could not generate batch report: {e}")
