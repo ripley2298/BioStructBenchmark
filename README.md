@@ -50,8 +50,10 @@ BioStructBenchmark compares experimental DNA-protein complex structures with the
 - DNA conformation classification (A/B/Z-form)
 
 ### 📈 Visualization
-- Publication-quality plots and dashboards
-- Per-residue RMSD heatmaps
+- Publication-quality plots and dashboards  
+- Memory-efficient per-residue RMSD heatmaps
+- Correlation analysis between RMSD and secondary metrics
+- Comprehensive analysis dashboards with 2x2 subplot layouts
 - DNA geometry comparison plots
 - Hydrogen bond network visualization
 - 3D structure alignment visualization
@@ -177,17 +179,20 @@ biostructbenchmark [OPTIONS] [LEGACY_FILES]
 ### Example Commands
 
 ```bash
-# Full analysis with all features
+# Full analysis with all features and visualizations
 biostructbenchmark -e exp.pdb -p pred.pdb --all-benchmarks --visualize
 
-# DNA-focused analysis
-biostructbenchmark -e exp.pdb -p pred.pdb --curves --multi-frame
+# DNA-focused analysis with heatmap visualizations
+biostructbenchmark -e exp.pdb -p pred.pdb --curves --multi-frame --visualize
 
-# Batch with specific analyses
-biostructbenchmark -e exp_dir/ -p pred_dir/ --bfactor --mutations --consensus
+# Batch with specific analyses and comprehensive visualizations
+biostructbenchmark -e exp_dir/ -p pred_dir/ --bfactor --mutations --consensus --visualize
 
-# High-throughput processing
-biostructbenchmark -e structures/ -p predictions/ --parallel 8 --quiet --export-all
+# High-throughput processing with visualization dashboards
+biostructbenchmark -e structures/ -p predictions/ --parallel 8 --visualize --export-all
+
+# Quick visualization-only run for existing results
+biostructbenchmark -e exp.pdb -p pred.pdb --rmsd-only --visualize
 ```
 
 ## Module Architecture
@@ -265,13 +270,17 @@ biostructbenchmark -e structures/ -p predictions/ --parallel 8 --quiet --export-
 
 ### Visualization Modules (`biostructbenchmark/visualization/`)
 
-#### `plots.py`
-- **Purpose**: Publication-quality matplotlib visualizations
+#### `residue_plots.py`
+- **Purpose**: Comprehensive residue-level visualization with heatmaps and correlations
 - **Generates**:
-  - RMSD distribution plots
-  - B-factor correlation plots
-  - Consensus error heatmaps
-  - Multi-panel dashboards
+  - Per-residue RMSD heatmaps (memory-efficient using imshow)
+  - Correlation matrices between RMSD and secondary data
+  - Interactive dashboards for comprehensive analysis
+  - Chain-by-chain comparison plots
+- **Features**:
+  - Unified module combining all plotting capabilities
+  - Legacy compatibility with `PublicationPlotter` interface
+  - Memory-efficient processing for large datasets
 
 #### `structure.py`
 - **Purpose**: 3D structure visualization
@@ -344,14 +353,20 @@ biostructbenchmark_results/
 │   │   ├── aligned_2_dna_to_protein_reference.pdb
 │   │   ├── aligned_3_dna_to_dna.pdb
 │   │   └── experimental_reference.pdb
+│   ├── visualizations/               # Comprehensive visualizations
+│   │   ├── residue_heatmap.png      # Per-residue RMSD heatmap
+│   │   ├── residue_correlation.png   # Correlation matrix
+│   │   ├── residue_chains.png       # Chain comparison
+│   │   ├── residue_dashboard.png    # Comprehensive dashboard
+│   │   ├── residue_summary.csv      # Visualization data
+│   │   └── analysis_summary.png     # Analysis overview
 │   ├── rmsd_full_structure.csv       # Per-residue RMSD
 │   ├── rmsd_dna_to_protein.csv      
 │   ├── rmsd_dna_standalone.csv      
 │   ├── multi_frame_analysis.json     # Comprehensive summary
 │   ├── geometry_comparison.csv       # CURVES+ results
 │   ├── hydrogen_bonds.csv           
-│   ├── bfactor_comparison.csv       
-│   └── multi_frame_dashboard.png     # Visualization
+│   └── bfactor_comparison.csv       
 └── batch_analysis_report.json        # Batch summary
 ```
 
@@ -392,10 +407,11 @@ grep -v "HOH\|HETATM" input.pdb > cleaned.pdb
 
 ### 2. Choosing Analysis Modes
 
-- **Quick assessment**: Use `--rmsd-only` for rapid screening
-- **Publication figures**: Always use `--visualize --export-all`
-- **DNA focus**: Combine `--multi-frame --curves`
-- **Comprehensive**: Use `--all-benchmarks` for complete analysis
+- **Quick assessment**: Use `--rmsd-only --visualize` for rapid screening with heatmaps
+- **Publication figures**: Always use `--visualize --export-all` for comprehensive outputs  
+- **DNA focus**: Combine `--multi-frame --curves --visualize` for detailed geometry analysis
+- **Comprehensive**: Use `--all-benchmarks --visualize` for complete analysis with dashboards
+- **Correlation analysis**: Use `--bfactor --visualize` to explore RMSD-confidence relationships
 
 ### 3. Interpreting Results
 
@@ -464,7 +480,16 @@ export MPLBACKEND=Agg  # For headless systems
 
 # Install optional dependencies
 pip install seaborn py3Dmol
+
+# For detailed visualizations, ensure residue data is available
+biostructbenchmark -e exp.pdb -p pred.pdb --visualize  # Auto-includes residue data
 ```
+
+#### No visualization outputs generated
+- Ensure you use the `--visualize` flag
+- Check that analysis completed successfully (RMSD calculation)
+- For detailed heatmaps, residue data must be available
+- Use `--verbose` to see detailed visualization status
 
 ## API Usage
 
@@ -473,7 +498,7 @@ pip install seaborn py3Dmol
 ```python
 from biostructbenchmark.core.alignment import perform_multi_frame_alignment
 from biostructbenchmark.analysis.curves import CurvesAnalyzer
-from biostructbenchmark.visualization.plots import PublicationPlotter
+from biostructbenchmark.visualization.residue_plots import create_residue_analysis, ResidueVisualizer
 
 # Multi-frame alignment
 result = perform_multi_frame_alignment(
@@ -492,11 +517,19 @@ analyzer = CurvesAnalyzer()
 params = analyzer.analyze_structure("dna_structure.pdb")
 hbonds = analyzer.detect_hydrogen_bonds("complex.pdb")
 
-# Visualization
-plotter = PublicationPlotter()
-plotter.summary_dashboard(
+# Comprehensive residue visualization
+viz_paths = create_residue_analysis(
+    residue_data=result.full_structure.residue_rmsds,
+    output_dir=Path("visualizations/"),
+    analysis_data={"bfactor": bfactor_data, "consensus": consensus_data}
+)
+
+# Custom visualization
+visualizer = ResidueVisualizer()
+fig = visualizer.plot_rmsd_heatmap(result.full_structure.residue_rmsds)
+fig = visualizer.residue_dashboard(
     {"rmsd": result.full_structure.residue_rmsds},
-    "dashboard.png"
+    Path("dashboard.png")
 )
 ```
 

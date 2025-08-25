@@ -355,18 +355,79 @@ def get_structure_pairs(args: argparse.Namespace) -> List[Tuple[Path, Path]]:
         exp_files = find_structure_files(args.experimental)
         pred_files = find_structure_files(args.predicted)
         
-        # Match by filename
+        # First try exact stem matching
         exp_stems = {f.stem: f for f in exp_files}
         pred_stems = {f.stem: f for f in pred_files}
-        
         common_stems = set(exp_stems.keys()) & set(pred_stems.keys())
         pairs = [(exp_stems[stem], pred_stems[stem]) for stem in sorted(common_stems)]
         
+        # If no exact matches, try intelligent matching based on structure IDs
+        if not pairs:
+            pairs = _match_structure_pairs_by_id(exp_files, pred_files)
+        
         if not pairs:
             print(f"Warning: No matching structure pairs found between directories")
+            print(f"Experimental files ({len(exp_files)}): {[f.name for f in exp_files[:3]]}{'...' if len(exp_files) > 3 else ''}")
+            print(f"Predicted files ({len(pred_files)}): {[f.name for f in pred_files[:3]]}{'...' if len(pred_files) > 3 else ''}")
     else:
         print("Error: Both experimental and predicted must be files or both must be directories", file=sys.stderr)
         sys.exit(1)
+    
+    return pairs
+
+
+def _match_structure_pairs_by_id(exp_files: List[Path], pred_files: List[Path]) -> List[Tuple[Path, Path]]:
+    """
+    Intelligent structure pairing based on extracted structure IDs
+    
+    Handles cases like:
+    - p456_02_experimental.pdb <-> p456_02_alphafold3.cif
+    - p456_16_experimental.pdb <-> p456_16_alphafold.cif
+    """
+    import re
+    
+    def extract_structure_id(filename: str) -> Optional[str]:
+        """Extract structure ID from filename (e.g., 'p456_02' from 'p456_02_experimental.pdb')"""
+        # Pattern to match common ID formats: p456_02, 1abc, 2xyz_A, etc.
+        patterns = [
+            r'(p\d+_\d+)',  # p456_02 format
+            r'(\d[a-zA-Z0-9]{3})',  # PDB ID format (1abc)
+            r'([a-zA-Z]+\d+)',  # General alphanumeric
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, filename.lower())
+            if match:
+                return match.group(1)
+        return None
+    
+    # Build ID mappings
+    exp_by_id = {}
+    pred_by_id = {}
+    
+    for exp_file in exp_files:
+        struct_id = extract_structure_id(exp_file.stem)
+        if struct_id:
+            exp_by_id[struct_id] = exp_file
+    
+    for pred_file in pred_files:
+        struct_id = extract_structure_id(pred_file.stem)
+        if struct_id:
+            pred_by_id[struct_id] = pred_file
+    
+    # Find matching pairs
+    pairs = []
+    matched_ids = set(exp_by_id.keys()) & set(pred_by_id.keys())
+    
+    for struct_id in sorted(matched_ids):
+        pairs.append((exp_by_id[struct_id], pred_by_id[struct_id]))
+    
+    if pairs:
+        print(f"Found {len(pairs)} structure pairs using ID matching:")
+        for exp_file, pred_file in pairs[:3]:
+            print(f"  {exp_file.name} <-> {pred_file.name}")
+        if len(pairs) > 3:
+            print(f"  ... and {len(pairs) - 3} more pairs")
     
     return pairs
 
