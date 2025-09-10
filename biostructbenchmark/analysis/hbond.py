@@ -41,6 +41,29 @@ class HydrogenBond:
                (self.donor_type == 'dna' and self.acceptor_type == 'protein')
 
 
+@dataclass 
+class CriticalInteraction:
+    """Container for critical DNA-binding residue interactions"""
+    residue_name: str  # e.g., "ARG", "GLN", "LYS"
+    residue_id: str   # e.g., "A:ARG:156"
+    interaction_type: str  # e.g., "Arg_NH3_to_phosphate", "Gln_amide_to_base"
+    experimental_distance: Optional[float] = None  # Angstroms
+    predicted_distance: Optional[float] = None    # Angstroms
+    distance_error: Optional[float] = None        # |predicted - experimental|
+    found_in_experimental: bool = False
+    found_in_predicted: bool = False
+    
+    @property
+    def is_conserved(self) -> bool:
+        """Check if interaction is present in both structures"""
+        return self.found_in_experimental and self.found_in_predicted
+    
+    @property 
+    def is_missing_in_prediction(self) -> bool:
+        """Check if interaction is missing in predicted structure"""
+        return self.found_in_experimental and not self.found_in_predicted
+
+
 @dataclass
 class HBondComparison:
     """Container for hydrogen bond network comparison"""
@@ -589,9 +612,17 @@ class HBondAnalyzer:
             exp_hbonds, pred_hbonds, correspondence_map)
         statistics = self.calculate_statistics(comparison)
         
-        return comparison, statistics
+        # Perform critical DNA-binding residue interaction analysis
+        critical_interactions = self.analyze_critical_dna_binding_interactions(
+            exp_structure, pred_structure, correspondence_map)
+        
+        # Verify ≥3 critical interactions requirement
+        critical_verification = self.verify_critical_interactions_requirement(critical_interactions)
+        
+        return comparison, statistics, critical_interactions, critical_verification
     
     def export_results(self, comparison: HBondComparison, statistics: HBondStatistics,
+                      critical_interactions: List[CriticalInteraction], critical_verification: Dict,
                       output_dir: Path, pair_id: str):
         """
         Export hydrogen bond analysis results
@@ -613,6 +644,14 @@ class HBondAnalyzer:
         
         # Export statistics
         self._export_statistics(statistics, output_dir / f"{pair_id}_hbond_statistics.json")
+        
+        # Export critical DNA-binding residue interactions
+        self._export_critical_interactions(critical_interactions, critical_verification, 
+                                         output_dir / f"{pair_id}_critical_interactions.csv")
+        
+        # Export critical interaction verification results
+        self._export_critical_verification(critical_verification, 
+                                         output_dir / f"{pair_id}_critical_verification.json")
     
     def _export_hbond_details(self, comparison: HBondComparison, output_path: Path):
         """Export detailed hydrogen bond information"""
@@ -768,3 +807,356 @@ class HBondAnalyzer:
         
         with open(output_path, 'w') as f:
             json.dump(stats_dict, f, indent=2)
+    
+    def analyze_critical_dna_binding_interactions(self, experimental_structure, predicted_structure,
+                                                correspondence_map: Dict) -> List[CriticalInteraction]:
+        """
+        Analyze critical DNA-binding residue interactions that are essential for protein-DNA recognition.
+        
+        Focuses on specific functional interactions:
+        1. Arginine NH₃⁺ to DNA phosphate interactions
+        2. Glutamine amide to DNA base interactions  
+        3. Lysine NH₃⁺ to DNA phosphate interactions
+        4. Asparagine amide to DNA base interactions
+        5. Serine/Threonine OH to DNA phosphate interactions
+        
+        Args:
+            experimental_structure: BioPython Structure object (experimental)
+            predicted_structure: BioPython Structure object (predicted)
+            correspondence_map: Residue correspondence between structures
+            
+        Returns:
+            List of CriticalInteraction objects with distance errors
+        """
+        critical_interactions = []
+        
+        # Define critical DNA-binding residue types and their functional atoms
+        critical_residue_types = {
+            'ARG': {
+                'atoms': ['NH1', 'NH2'],  # Guanidinium group
+                'target_type': 'phosphate',
+                'interaction_name': 'Arg_NH3_to_phosphate',
+                'max_distance': 3.5  # Angstroms
+            },
+            'LYS': {
+                'atoms': ['NZ'],  # Amino group  
+                'target_type': 'phosphate',
+                'interaction_name': 'Lys_NH3_to_phosphate',
+                'max_distance': 3.5
+            },
+            'GLN': {
+                'atoms': ['NE2', 'OE1'],  # Amide group
+                'target_type': 'base',
+                'interaction_name': 'Gln_amide_to_base', 
+                'max_distance': 3.2
+            },
+            'ASN': {
+                'atoms': ['ND2', 'OD1'],  # Amide group
+                'target_type': 'base',
+                'interaction_name': 'Asn_amide_to_base',
+                'max_distance': 3.2
+            },
+            'SER': {
+                'atoms': ['OG'],  # Hydroxyl group
+                'target_type': 'phosphate',
+                'interaction_name': 'Ser_OH_to_phosphate',
+                'max_distance': 3.2
+            },
+            'THR': {
+                'atoms': ['OG1'],  # Hydroxyl group
+                'target_type': 'phosphate', 
+                'interaction_name': 'Thr_OH_to_phosphate',
+                'max_distance': 3.2
+            }
+        }
+        
+        # Find critical residues in experimental structure
+        exp_critical_residues = self._find_critical_residues(experimental_structure, critical_residue_types)
+        
+        # Analyze each critical residue
+        for exp_res_info in exp_critical_residues:
+            residue_name = exp_res_info['residue_name']
+            residue_id = exp_res_info['residue_id']
+            residue_obj = exp_res_info['residue_obj']
+            
+            # Find corresponding residue in predicted structure
+            pred_residue = self._find_corresponding_residue(residue_obj, predicted_structure, correspondence_map)
+            
+            if not pred_residue:
+                continue  # Skip if no correspondence found
+                
+            # Analyze the specific interaction for this residue type
+            interaction_config = critical_residue_types[residue_name]
+            
+            # Find experimental interaction
+            exp_interaction = self._find_critical_interaction(
+                residue_obj, experimental_structure, interaction_config, 'experimental')
+            
+            # Find predicted interaction  
+            pred_interaction = self._find_critical_interaction(
+                pred_residue, predicted_structure, interaction_config, 'predicted')
+            
+            # Create CriticalInteraction object
+            critical_interaction = CriticalInteraction(
+                residue_name=residue_name,
+                residue_id=residue_id,
+                interaction_type=interaction_config['interaction_name'],
+                experimental_distance=exp_interaction['distance'] if exp_interaction['found'] else None,
+                predicted_distance=pred_interaction['distance'] if pred_interaction['found'] else None,
+                found_in_experimental=exp_interaction['found'],
+                found_in_predicted=pred_interaction['found']
+            )
+            
+            # Calculate distance error if both interactions found
+            if critical_interaction.is_conserved:
+                critical_interaction.distance_error = abs(
+                    critical_interaction.predicted_distance - critical_interaction.experimental_distance)
+            
+            critical_interactions.append(critical_interaction)
+        
+        return critical_interactions
+    
+    def _find_critical_residues(self, structure, critical_residue_types: Dict) -> List[Dict]:
+        """Find all critical DNA-binding residues in structure"""
+        critical_residues = []
+        
+        for residue in Selection.unfold_entities(structure, 'R'):
+            if self._classify_molecule_type(residue) != 'protein':
+                continue
+                
+            residue_name = residue.get_resname().strip()
+            if residue_name in critical_residue_types:
+                chain_id = residue.get_parent().get_id()
+                residue_id = f"{chain_id}:{residue_name}:{residue.get_id()[1]}"
+                
+                critical_residues.append({
+                    'residue_name': residue_name,
+                    'residue_id': residue_id,
+                    'residue_obj': residue
+                })
+        
+        return critical_residues
+    
+    def _find_corresponding_residue(self, exp_residue, pred_structure, correspondence_map: Dict):
+        """Find corresponding residue in predicted structure using correspondence map"""
+        exp_chain = exp_residue.get_parent().get_id()
+        exp_pos = exp_residue.get_id()[1]
+        
+        # Look up in correspondence map
+        pred_info = correspondence_map.get((exp_chain, exp_pos))
+        if not pred_info:
+            return None
+            
+        pred_chain, pred_pos = pred_info
+        
+        try:
+            return pred_structure[0][pred_chain][pred_pos]
+        except KeyError:
+            return None
+    
+    def _find_critical_interaction(self, residue, structure, interaction_config: Dict, structure_type: str) -> Dict:
+        """Find specific critical interaction for a residue"""
+        result = {'found': False, 'distance': None, 'target_atom': None}
+        
+        # Get functional atoms from the residue
+        functional_atoms = []
+        for atom_name in interaction_config['atoms']:
+            try:
+                atom = residue[atom_name]
+                functional_atoms.append(atom)
+            except KeyError:
+                continue  # Atom not found in residue
+        
+        if not functional_atoms:
+            return result
+        
+        # Find DNA targets based on interaction type
+        target_atoms = self._get_dna_target_atoms(structure, interaction_config['target_type'])
+        
+        if not target_atoms:
+            return result
+        
+        # Find closest interaction within distance threshold
+        min_distance = float('inf')
+        closest_target = None
+        
+        for func_atom in functional_atoms:
+            for target_atom in target_atoms:
+                distance = func_atom - target_atom  # BioPython distance calculation
+                
+                if distance <= interaction_config['max_distance'] and distance < min_distance:
+                    min_distance = distance
+                    closest_target = target_atom
+        
+        if closest_target:
+            result['found'] = True
+            result['distance'] = min_distance
+            result['target_atom'] = closest_target
+        
+        return result
+    
+    def _get_dna_target_atoms(self, structure, target_type: str) -> List:
+        """Get DNA target atoms based on interaction type"""
+        target_atoms = []
+        
+        for residue in Selection.unfold_entities(structure, 'R'):
+            if self._classify_molecule_type(residue) != 'dna':
+                continue
+            
+            if target_type == 'phosphate':
+                # Phosphate atoms: P, O1P, O2P (or OP1, OP2)
+                for atom_name in ['P', 'O1P', 'O2P', 'OP1', 'OP2']:
+                    try:
+                        target_atoms.append(residue[atom_name])
+                    except KeyError:
+                        continue
+                        
+            elif target_type == 'base':
+                # Base atoms: N1, N3, N6, N7, O6, N4, O4, O2 (varied by base type)
+                base_atoms = ['N1', 'N3', 'N6', 'N7', 'O6', 'N4', 'O4', 'O2', 'N2']
+                for atom_name in base_atoms:
+                    try:
+                        target_atoms.append(residue[atom_name])
+                    except KeyError:
+                        continue
+        
+        return target_atoms
+    
+    def verify_critical_interactions_requirement(self, critical_interactions: List[CriticalInteraction]) -> Dict:
+        """
+        Verify that ≥3 critical DNA-binding interactions are conserved between structures.
+        
+        Returns:
+            Dictionary with verification results and detailed breakdown
+        """
+        conserved_interactions = [ci for ci in critical_interactions if ci.is_conserved]
+        missing_interactions = [ci for ci in critical_interactions if ci.is_missing_in_prediction]
+        
+        # Count actual DNA-binding residues in experimental structure
+        experimental_dna_binders = [ci for ci in critical_interactions if ci.found_in_experimental]
+        non_dna_binding_residues = [ci for ci in critical_interactions if not ci.found_in_experimental]
+        
+        # Calculate distance errors for conserved interactions
+        distance_errors = []
+        for ci in conserved_interactions:
+            if ci.distance_error is not None:
+                distance_errors.append(ci.distance_error)
+        
+        # Calculate conservation rate relative to actual DNA-binding residues
+        conservation_rate_all = len(conserved_interactions) / len(critical_interactions) if critical_interactions else 0.0
+        conservation_rate_dna_binders = len(conserved_interactions) / len(experimental_dna_binders) if experimental_dna_binders else 0.0
+        
+        verification_result = {
+            'meets_requirement': len(conserved_interactions) >= 3,
+            'total_critical_interactions': len(critical_interactions),
+            'experimental_dna_binding_residues': len(experimental_dna_binders),
+            'non_dna_binding_residues': len(non_dna_binding_residues),
+            'conserved_interactions': len(conserved_interactions),
+            'missing_interactions': len(missing_interactions),
+            'conservation_rate_all_residues': conservation_rate_all,
+            'conservation_rate_dna_binders': conservation_rate_dna_binders,
+            'mean_distance_error': np.mean(distance_errors) if distance_errors else None,
+            'max_distance_error': np.max(distance_errors) if distance_errors else None,
+            'failed_interactions': [ci.residue_id for ci in missing_interactions],
+            'conserved_interaction_details': [
+                {
+                    'residue_id': ci.residue_id,
+                    'interaction_type': ci.interaction_type,
+                    'distance_error': ci.distance_error
+                }
+                for ci in conserved_interactions
+            ],
+            'experimental_dna_binder_details': [
+                {
+                    'residue_id': ci.residue_id,
+                    'interaction_type': ci.interaction_type,
+                    'conserved': ci.is_conserved,
+                    'experimental_distance': ci.experimental_distance
+                }
+                for ci in experimental_dna_binders
+            ]
+        }
+        
+        return verification_result
+    
+    def _export_critical_interactions(self, critical_interactions: List[CriticalInteraction], 
+                                     critical_verification: Dict, output_path: Path):
+        """Export critical DNA-binding residue interactions to CSV"""
+        import csv
+        
+        with open(output_path, 'w', newline='') as f:
+            writer = csv.writer(f)
+            
+            # Write header with metadata
+            f.write(f"# Critical DNA-binding residue interactions analysis\n")
+            f.write(f"# Total potential DNA-binding residues: {critical_verification['total_critical_interactions']}\n")
+            f.write(f"# Actual DNA-binding residues (experimental): {critical_verification['experimental_dna_binding_residues']}\n")
+            f.write(f"# Non-DNA-binding residues: {critical_verification['non_dna_binding_residues']}\n")
+            f.write(f"# Conserved interactions: {critical_verification['conserved_interactions']}\n")
+            f.write(f"# Missing interactions: {critical_verification['missing_interactions']}\n")
+            f.write(f"# Conservation rate (vs all residues): {critical_verification['conservation_rate_all_residues']:.3f}\n")
+            f.write(f"# Conservation rate (vs DNA-binders): {critical_verification['conservation_rate_dna_binders']:.3f}\n")
+            f.write(f"# Meets ≥3 requirement: {critical_verification['meets_requirement']}\n")
+            
+            # Write CSV headers
+            writer.writerow([
+                'residue_id', 'residue_name', 'interaction_type',
+                'found_in_experimental', 'found_in_predicted', 'is_conserved',
+                'experimental_distance', 'predicted_distance', 'distance_error',
+                'status'
+            ])
+            
+            # Write data for each critical interaction
+            for ci in critical_interactions:
+                status = 'CONSERVED' if ci.is_conserved else 'MISSING_IN_PREDICTION' if ci.is_missing_in_prediction else 'NOT_FOUND_EXPERIMENTAL'
+                
+                writer.writerow([
+                    ci.residue_id,
+                    ci.residue_name,
+                    ci.interaction_type,
+                    ci.found_in_experimental,
+                    ci.found_in_predicted,
+                    ci.is_conserved,
+                    f"{ci.experimental_distance:.3f}" if ci.experimental_distance else 'N/A',
+                    f"{ci.predicted_distance:.3f}" if ci.predicted_distance else 'N/A',
+                    f"{ci.distance_error:.3f}" if ci.distance_error else 'N/A',
+                    status
+                ])
+    
+    def _export_critical_verification(self, critical_verification: Dict, output_path: Path):
+        """Export critical interaction verification results to JSON"""
+        import json
+        
+        def convert_numpy_types(obj):
+            """Convert numpy types to Python native types for JSON serialization"""
+            if hasattr(obj, 'item'):  # numpy scalar
+                return obj.item()
+            elif isinstance(obj, np.ndarray):
+                return obj.tolist()
+            elif isinstance(obj, dict):
+                return {key: convert_numpy_types(value) for key, value in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_numpy_types(item) for item in obj]
+            else:
+                return obj
+        
+        # Convert numpy types to native Python types
+        verification_data = convert_numpy_types(critical_verification)
+        
+        # Add analysis summary
+        verification_data['analysis_summary'] = {
+            'requirement_description': 'Verify ≥3 critical DNA-binding interactions are conserved',
+            'critical_interaction_types': [
+                'Arg_NH3_to_phosphate',
+                'Lys_NH3_to_phosphate', 
+                'Gln_amide_to_base',
+                'Asn_amide_to_base',
+                'Ser_OH_to_phosphate',
+                'Thr_OH_to_phosphate'
+            ],
+            'assessment': 'PASS' if verification_data['meets_requirement'] else 'FAIL',
+            'recommendation': 'Structural prediction quality is adequate for functional interactions' if verification_data['meets_requirement'] else 'Prediction may have significant functional deficiencies'
+        }
+        
+        with open(output_path, 'w') as f:
+            json.dump(verification_data, f, indent=2)
