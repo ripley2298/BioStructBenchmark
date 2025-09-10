@@ -9,6 +9,7 @@ __pycache__/
 data/.DS_Store
 *.log
 tests/*
+*.backup
 
 # Root directory ignores
 .claude
