@@ -411,7 +411,8 @@ def create_residue_analysis(residue_data: List[ResidueRMSD], output_dir: Path,
     summary_path = output_dir / 'residue_summary.csv'
     pd.DataFrame([{
         'residue_id': r.residue_id, 'chain': r.chain_id, 'position': r.position,
-        'rmsd': f'{r.rmsd:.3f}', 'type': r.molecule_type, 'residue': r.residue_type
+        'all_atom_rmsd': f'{r.rmsd:.3f}', 'backbone_rmsd': f'{r.backbone_rmsd:.3f}' if r.backbone_rmsd else 'N/A',
+        'type': r.molecule_type, 'residue': r.residue_type
     } for r in residue_data]).to_csv(summary_path, index=False)
     
     output_paths['summary'] = summary_path

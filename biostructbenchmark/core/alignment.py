@@ -20,9 +20,11 @@ class ResidueRMSD:
     residue_type: str  # For compatibility: unit_type (amino acid or nucleotide type)
     chain_id: str
     position: int
-    rmsd: float
+    rmsd: float  # All-atom RMSD (primary)
     atom_count: int
     molecule_type: str  # 'protein' or 'dna'
+    backbone_rmsd: Optional[float] = None  # Backbone-only RMSD (additional reporting)
+    backbone_atom_count: Optional[int] = None  # Number of backbone atoms used
     dna_atoms: Optional[List['Bio.PDB.Atom.Atom']] = None  # DNA atoms for distance calculations
     
     @property
@@ -485,33 +487,55 @@ def align_structures_three_frames(observed: BioStructure, predicted: BioStructur
 # --- RMSD CALCULATIONS ---
 
 def calculate_residue_rmsd(obs_res, pred_res) -> Optional[ResidueRMSD]:
-    """Calculate RMSD between two residues/nucleotides"""
+    """Calculate both all-atom and backbone-only RMSD between two residues/nucleotides"""
     obs_atoms = {atom.get_name(): atom for atom in obs_res.get_atoms()}
     pred_atoms = {atom.get_name(): atom for atom in pred_res.get_atoms()}
     
-    # Find common atoms
+    # Find common atoms (all atoms)
     common_names = list(obs_atoms.keys() & pred_atoms.keys())
     if len(common_names) < 2:
         return None
     
-    # Calculate RMSD
+    # Calculate all-atom RMSD (primary)
     obs_coords = np.array([obs_atoms[name].get_coord() for name in common_names])
     pred_coords = np.array([pred_atoms[name].get_coord() for name in common_names])
     diff = obs_coords - pred_coords
-    rmsd = np.sqrt(np.mean(np.sum(diff**2, axis=1)))
+    all_atom_rmsd = np.sqrt(np.mean(np.sum(diff**2, axis=1)))
     
-    # Create result
+    # Define backbone atoms
     chain_id = obs_res.get_parent().get_id()
     is_dna = obs_res.get_resname().strip() in {'DA','DT','DG','DC'}
+    
+    if is_dna:
+        # DNA backbone atoms: phosphate and sugar, excluding bases
+        backbone_atoms = {'O1P', 'O2P', 'OP1', 'OP2', 'P', "O5'", "C5'", "C4'", "O4'", "C3'", "O3'", "C2'", "C1'"}
+    else:
+        # Protein backbone atoms
+        backbone_atoms = {'N', 'CA', 'C', 'O'}
+    
+    # Find common backbone atoms
+    backbone_common = [name for name in common_names if name in backbone_atoms]
+    backbone_rmsd = None
+    backbone_atom_count = 0
+    
+    if len(backbone_common) >= 2:
+        # Calculate backbone-only RMSD (additional reporting)
+        obs_bb_coords = np.array([obs_atoms[name].get_coord() for name in backbone_common])
+        pred_bb_coords = np.array([pred_atoms[name].get_coord() for name in backbone_common])
+        bb_diff = obs_bb_coords - pred_bb_coords
+        backbone_rmsd = np.sqrt(np.mean(np.sum(bb_diff**2, axis=1)))
+        backbone_atom_count = len(backbone_common)
     
     return ResidueRMSD(
         residue_id=f"{chain_id}:{obs_res.get_id()[1]}",
         residue_type=obs_res.get_resname(),
         chain_id=chain_id,
         position=obs_res.get_id()[1],
-        rmsd=rmsd,
+        rmsd=all_atom_rmsd,  # Primary: all-atom RMSD
         atom_count=len(common_names),
-        molecule_type='dna' if is_dna else 'protein'
+        molecule_type='dna' if is_dna else 'protein',
+        backbone_rmsd=backbone_rmsd,  # Additional: backbone-only RMSD
+        backbone_atom_count=backbone_atom_count
     )
 
 
@@ -705,11 +729,13 @@ def export_comprehensive_alignment_report(result: AlignmentResult, output_dir, p
     with open(csv_path, 'w', newline='') as f:
         writer = csv.writer(f)
         writer.writerow(['unit_id', 'unit_type', 'chain_id', 'position', 
-                        'rmsd', 'atom_count', 'molecule_type', 'reference_frame', 'unit_class'])
+                        'all_atom_rmsd', 'all_atom_count', 'backbone_rmsd', 'backbone_atom_count',
+                        'molecule_type', 'reference_frame', 'unit_class'])
         for rmsd in result.residue_rmsds:
             unit_class = 'amino_acid' if rmsd.is_protein else 'nucleotide'
             writer.writerow([rmsd.unit_id, rmsd.unit_type, rmsd.chain_id, 
-                           rmsd.position, rmsd.rmsd, rmsd.atom_count, 
+                           rmsd.position, rmsd.rmsd, rmsd.atom_count,
+                           rmsd.backbone_rmsd or 'N/A', rmsd.backbone_atom_count or 0,
                            rmsd.molecule_type, result.reference_frame, unit_class])
     
     # Export per-chain RMSD CSV
@@ -758,6 +784,7 @@ def compare_structures(observed: BioStructure, predicted: BioStructure,
 def export_residue_rmsd_csv(residue_rmsds: List[ResidueRMSD], output_path: str, reference_frame: str = ""):
     """
     Export structural unit RMSD data to CSV file with proper scientific nomenclature.
+    Also creates separate ALL_ATOM_RMSD.csv and BACKBONE_RMSD.csv files for clarity.
     
     This function exports detailed per-residue/per-nucleotide RMSD data in a standardized
     CSV format suitable for further analysis and visualization.
@@ -775,21 +802,30 @@ def export_residue_rmsd_csv(residue_rmsds: List[ResidueRMSD], output_path: str, 
         - unit_type: Three-letter code (amino acid or nucleotide type)
         - chain_id: Chain identifier from PDB structure
         - position: Residue/nucleotide position number
-        - rmsd: Root Mean Square Deviation in Angstroms
-        - atom_count: Number of atoms used in RMSD calculation
+        - all_atom_rmsd: All-atom Root Mean Square Deviation in Angstroms (primary)
+        - all_atom_count: Number of all atoms used in RMSD calculation
+        - backbone_rmsd: Backbone-only Root Mean Square Deviation in Angstroms (additional)
+        - backbone_atom_count: Number of backbone atoms used in RMSD calculation
         - molecule_type: 'protein' or 'dna'
         - unit_class: 'amino_acid' or 'nucleotide' for proper scientific classification
         
     Note:
         Uses proper scientific nomenclature where 'residue' refers to amino acids
         and 'nucleotide' refers to DNA/RNA units.
+        
+        Creates three files:
+        1. Combined dual RMSD file (original output_path)
+        2. ALL_ATOM_RMSD.csv (all-atom RMSD only)
+        3. BACKBONE_RMSD.csv (backbone RMSD only)
     """
     import csv
     from pathlib import Path
     
     # Ensure output directory exists
-    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     
+    # Write main combined file
     with open(output_path, 'w', newline='') as f:
         writer = csv.writer(f)
         
@@ -801,7 +837,8 @@ def export_residue_rmsd_csv(residue_rmsds: List[ResidueRMSD], output_path: str, 
         
         # Write headers using proper scientific nomenclature
         writer.writerow(['unit_id', 'unit_type', 'chain_id', 'position',
-                        'rmsd', 'atom_count', 'molecule_type', 'unit_class'])
+                        'all_atom_rmsd', 'all_atom_count', 'backbone_rmsd', 'backbone_atom_count',
+                        'molecule_type', 'unit_class'])
         
         # Export data for each structural unit
         for rmsd in residue_rmsds:
@@ -809,14 +846,68 @@ def export_residue_rmsd_csv(residue_rmsds: List[ResidueRMSD], output_path: str, 
             unit_class = 'amino_acid' if rmsd.is_protein else 'nucleotide'
             
             writer.writerow([
-                rmsd.unit_id,           # Structural unit identifier
-                rmsd.unit_type,         # Three-letter type code  
-                rmsd.chain_id,          # PDB chain identifier
-                rmsd.position,          # Position in sequence
-                rmsd.rmsd,              # RMSD value in Angstroms
-                rmsd.atom_count,        # Number of atoms compared
-                rmsd.molecule_type,     # Molecule classification
-                unit_class              # Scientific classification
+                rmsd.unit_id,                    # Structural unit identifier
+                rmsd.unit_type,                  # Three-letter type code  
+                rmsd.chain_id,                   # PDB chain identifier
+                rmsd.position,                   # Position in sequence
+                rmsd.rmsd,                       # All-atom RMSD value in Angstroms (primary)
+                rmsd.atom_count,                 # Number of all atoms compared
+                rmsd.backbone_rmsd or 'N/A',     # Backbone-only RMSD (additional)
+                rmsd.backbone_atom_count or 0,   # Number of backbone atoms compared
+                rmsd.molecule_type,              # Molecule classification
+                unit_class                       # Scientific classification
+            ])
+    
+    # Create frame-specific filename prefix
+    base_name = output_path.stem  # Get filename without extension
+    frame_prefix = reference_frame.replace("_to_", "_").replace("_reference", "") if reference_frame else "default"
+    
+    # Create separate ALL_ATOM_RMSD.csv file with frame prefix
+    all_atom_path = output_path.parent / f"ALL_ATOM_RMSD_{frame_prefix}.csv"
+    with open(all_atom_path, 'w', newline='') as f:
+        writer = csv.writer(f)
+        
+        # Add metadata
+        if reference_frame:
+            f.write(f"# Reference frame: {reference_frame}\n")
+            f.write(f"# ALL-ATOM RMSD: Includes all atoms (protein: backbone + side chains, DNA: backbone + bases)\n")
+            f.write(f"# Total structural units: {len(residue_rmsds)}\n")
+        
+        writer.writerow(['unit_id', 'unit_type', 'all_atom_rmsd', 'atom_count', 'molecule_type', 'unit_class'])
+        
+        for rmsd in residue_rmsds:
+            unit_class = 'amino_acid' if rmsd.is_protein else 'nucleotide'
+            writer.writerow([
+                rmsd.unit_id,
+                rmsd.unit_type, 
+                rmsd.rmsd,  # All-atom RMSD
+                rmsd.atom_count,
+                rmsd.molecule_type,
+                unit_class
+            ])
+    
+    # Create separate BACKBONE_RMSD.csv file with frame prefix
+    backbone_path = output_path.parent / f"BACKBONE_RMSD_{frame_prefix}.csv"
+    with open(backbone_path, 'w', newline='') as f:
+        writer = csv.writer(f)
+        
+        # Add metadata
+        if reference_frame:
+            f.write(f"# Reference frame: {reference_frame}\n")
+            f.write(f"# BACKBONE RMSD: Protein (N,CA,C,O), DNA (P,O1P,O2P,O5',C5',C4',O4',C3',O3',C2',C1')\n")
+            f.write(f"# Total structural units: {len(residue_rmsds)}\n")
+        
+        writer.writerow(['unit_id', 'unit_type', 'backbone_rmsd', 'backbone_atom_count', 'molecule_type', 'unit_class'])
+        
+        for rmsd in residue_rmsds:
+            unit_class = 'amino_acid' if rmsd.is_protein else 'nucleotide'
+            writer.writerow([
+                rmsd.unit_id,
+                rmsd.unit_type,
+                rmsd.backbone_rmsd or 'N/A',  # Backbone RMSD
+                rmsd.backbone_atom_count or 0,
+                rmsd.molecule_type,
+                unit_class
             ])
 
 
