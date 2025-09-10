@@ -28,7 +28,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install --group test -e .
+          pip install .[test]
       - name: Test with pytest
         run: pytest -v
 
