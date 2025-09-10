@@ -61,7 +61,7 @@ def run_batch_analysis(structure_pairs: List[Tuple[Path, Path, str]], output_dir
     from biostructbenchmark.core.alignment import align_structures_three_frames
     from biostructbenchmark.core.io import get_structure
     from biostructbenchmark.analysis.pca import PCAAnalyzer
-    from biostructbenchmark.visualization.plots import PublicationPlotter, create_publication_report
+    from biostructbenchmark.visualization.residue_plots import PublicationPlotter, create_publication_report
     
     output_dir.mkdir(parents=True, exist_ok=True)
     print(f"Output directory: {output_dir}")
@@ -108,6 +108,10 @@ def run_batch_analysis(structure_pairs: List[Tuple[Path, Path, str]], output_dir
                 result_summary[f'{frame_name}_rmsd'] = round(float(frame_result.overall_rmsd), 4)
                 result_summary[f'{frame_name}_atoms'] = int(getattr(frame_result, 'aligned_atom_count', 0))
                 
+                # Include residue data for visualization (especially for global frame)
+                if frame_name == 'global' and hasattr(frame_result, 'residue_rmsds') and frame_result.residue_rmsds:
+                    result_summary['residue_rmsds'] = frame_result.residue_rmsds
+                
                 # Quality assessment
                 rmsd = frame_result.overall_rmsd
                 if rmsd < 2.0:
@@ -132,11 +136,15 @@ def run_batch_analysis(structure_pairs: List[Tuple[Path, Path, str]], output_dir
             pair_dir.mkdir(exist_ok=True)
             
             # Export per-residue RMSD data for each frame
-            from biostructbenchmark.core.alignment import export_residue_rmsd_csv
+            from biostructbenchmark.core.alignment import export_residue_rmsd_csv, save_aligned_structures
             for frame_name, frame_result in alignment_results.items():
                 if hasattr(frame_result, 'residue_rmsds') and frame_result.residue_rmsds:
                     csv_path = pair_dir / f"rmsd_{frame_name}.csv"
                     export_residue_rmsd_csv(frame_result.residue_rmsds, str(csv_path))
+            
+            # Save aligned structures used for RMSD calculations
+            print(f"  📁 Saving aligned structures...")
+            save_aligned_structures(alignment_results, pair_dir, pair_id, exp_structure, pred_structure)
             
             # Create individual pair summary
             pair_summary = {
@@ -156,7 +164,7 @@ def run_batch_analysis(structure_pairs: List[Tuple[Path, Path, str]], output_dir
                 'overall_assessment': {
                     'primary_rmsd': float(global_rmsd),
                     'quality_category': result_summary['global_quality'],
-                    'suitable_for_analysis': global_rmsd < 4.0
+                    'suitable_for_analysis': bool(global_rmsd < 4.0)
                 }
             }
             
@@ -365,7 +373,7 @@ def generate_advanced_analytics(batch_results: List[Dict], detailed_results: Dic
         print(f"⚠ Advanced analytics generation failed: {e}")
 
 def generate_batch_visualizations(batch_results: List[Dict], output_dir: Path):
-    """Generate batch visualization reports"""
+    """Generate comprehensive batch visualization reports using unified residue analysis"""
     
     print(f"\n=== GENERATING VISUALIZATIONS ===")
     
@@ -373,13 +381,32 @@ def generate_batch_visualizations(batch_results: List[Dict], output_dir: Path):
         import matplotlib
         matplotlib.use('Agg')
         import matplotlib.pyplot as plt
-        import seaborn as sns
+        import numpy as np
+        from biostructbenchmark.visualization.residue_plots import create_residue_analysis, ResidueVisualizer
         
         viz_dir = output_dir / "visualizations"
         viz_dir.mkdir(exist_ok=True)
         
-        # RMSD distribution plot
-        global_rmsds = [r['global_rmsd'] for r in batch_results]
+        # Extract all residue data for comprehensive analysis
+        all_residue_data = []
+        global_rmsds = []
+        
+        for result in batch_results:
+            if 'residue_rmsds' in result and result['residue_rmsds']:
+                all_residue_data.extend(result['residue_rmsds'])
+            if 'global_rmsd' in result:
+                global_rmsds.append(result['global_rmsd'])
+        
+        # Generate comprehensive residue analysis if we have residue data
+        if all_residue_data:
+            print(f"  → Generating comprehensive residue analysis for {len(all_residue_data)} residues...")
+            try:
+                residue_viz_paths = create_residue_analysis(all_residue_data, viz_dir)
+                print(f"  ✓ Generated {len(residue_viz_paths)} detailed residue visualizations")
+            except Exception as e:
+                print(f"  ⚠ Detailed residue visualization failed: {e}")
+        
+        # Generate batch summary dashboard
         
         plt.figure(figsize=(12, 8))
         
