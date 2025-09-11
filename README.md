@@ -54,7 +54,6 @@ BioStructBenchmark compares experimental DNA-protein complex structures with the
 | **Serine** | OG | DNA phosphate | 3.2Å | Hydroxyl-phosphate contacts |
 | **Threonine** | OG1 | DNA phosphate | 3.2Å | Backbone stabilization |
 
-**Key Innovation**: Reports conservation rate relative to **actual DNA-binding residues** (not all potential binders), providing biologically meaningful assessment (e.g., 37.5% vs misleading 2.6%).
 
 ### 📊 Comprehensive Metrics
 - **Dual RMSD calculation**: All-atom (backbone + side chains/bases) and backbone-only for all analyses
