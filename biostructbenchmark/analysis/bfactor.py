@@ -194,3 +194,26 @@ class BFactorAnalyzer:
                 'normalized_bfactor': comp.normalized_bfactor
             })
         return pd.DataFrame(data)
+
+
+def run_bfactor_analysis(exp_path: Path, pred_path: Path, 
+                        output_dir: Path, args) -> Optional[Dict]:
+    """Run B-factor vs pLDDT analysis"""
+    try:        
+        if not args.quiet:
+            print("  → Analyzing B-factors vs confidence metrics...")
+        
+        result = analyze_bfactors(exp_path, pred_path, output_dir)
+        
+        if result and not args.quiet:
+            print("  ✓ B-factor analysis complete")
+        
+        return result
+        
+    except ImportError:
+        if args.verbose:
+            print("  ⚠ B-factor module not available")
+        return None
+    except Exception as e:
+        print(f"  ✗ B-factor analysis failed: {e}")
+        return None

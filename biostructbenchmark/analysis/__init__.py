@@ -11,15 +11,6 @@ from .mutations import MutationAnalyzer, Mutation
 from .pca import PCAAnalyzer, PCAResult, StructureOutlier, ResidueOutlier
 from .hbond import HBondAnalyzer, HydrogenBond, HBondComparison, HBondStatistics
 
-# Conditional import for CURVES+ (may not have executable)
-try:
-    from .curves import CurvesAnalyzer, CurvesParameters, HydrogenBond
-    _curves_available = True
-except (ImportError, RuntimeError):
-    _curves_available = False
-    CurvesAnalyzer = None
-    CurvesParameters = None
-    HydrogenBond = None
 
 __all__ = [
     # B-factor analysis
@@ -52,10 +43,3 @@ __all__ = [
     'HBondStatistics',
 ]
 
-# Add CURVES+ if available
-if _curves_available:
-    __all__.extend([
-        'CurvesAnalyzer',
-        'CurvesParameters',
-        'HydrogenBond'
-    ])

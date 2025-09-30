@@ -581,45 +581,165 @@ class HBondAnalyzer:
     def analyze_structures_with_correspondence(self, experimental_path: Path, predicted_path: Path, 
                                              correspondence_map: Dict[str, str]) -> Tuple[HBondComparison, HBondStatistics]:
         """
-        Analyze hydrogen bond networks using structural correspondence mapping
-        
-        This method addresses the critical issue where residue numbering differences
-        between experimental and predicted structures cause false negative matches
-        in hydrogen bond comparison.
+        Analyze hydrogen bond networks using X3DNA-DSSR with structural correspondence mapping
         
         Args:
             experimental_path: Path to experimental structure
             predicted_path: Path to predicted structure  
             correspondence_map: Dict mapping experimental residue IDs to predicted residue IDs
-                               Format: {exp_chain:res_name:num -> pred_chain:res_name:num}
+                               
+        Returns:
+            (HBondComparison, HBondStatistics) with X3DNA-DSSR analysis
+        """
+        try:
+            # Use X3DNA-DSSR with bash and jq for robust hydrogen bond analysis
+            exp_hbonds = self._extract_hbonds_with_dssr(experimental_path)
+            pred_hbonds = self._extract_hbonds_with_dssr(predicted_path)
+            
+            # Use correspondence-aware comparison
+            comparison = self.compare_hydrogen_bonds_with_correspondence(
+                exp_hbonds, pred_hbonds, correspondence_map)
+            statistics = self.calculate_statistics(comparison)
+            
+            return comparison, statistics
+            
+        except Exception as e:
+            print(f"Warning: X3DNA-DSSR hydrogen bond analysis failed: {e}")
+            # Fallback to simple analysis without critical interactions
+            exp_structure = get_structure(experimental_path)
+            pred_structure = get_structure(predicted_path)
+            
+            if not exp_structure or not pred_structure:
+                raise ValueError(f"Could not load structures from {experimental_path} or {predicted_path}")
+            
+            exp_hbonds = self.find_hydrogen_bonds(exp_structure)
+            pred_hbonds = self.find_hydrogen_bonds(pred_structure)
+            
+            comparison = self.compare_hydrogen_bonds(exp_hbonds, pred_hbonds)
+            statistics = self.calculate_statistics(comparison)
+            
+            return comparison, statistics
+    
+    def _extract_hbonds_with_dssr(self, structure_path: Path) -> List[HydrogenBond]:
+        """
+        Extract hydrogen bonds using X3DNA-DSSR with bash and jq
+        
+        Uses the approach: x3dna-dssr -i=input_file --get-hbond --json | jq '.hbonds[] | select(.residue_pair=="TYPE")'
+        where TYPE is "nt:aa", "aa:aa", or "nt:nt"
+        
+        Args:
+            structure_path: Path to structure file
             
         Returns:
-            (HBondComparison, HBondStatistics) with proper correspondence-based matching
+            List of HydrogenBond objects
         """
-        # Load structures
-        exp_structure = get_structure(experimental_path)
-        pred_structure = get_structure(predicted_path)
+        import subprocess
+        import json
+        import tempfile
         
-        if not exp_structure or not pred_structure:
-            raise ValueError(f"Could not load structures from {experimental_path} or {predicted_path}")
+        hbonds = []
         
-        # Find hydrogen bonds in both structures
-        exp_hbonds = self.find_hydrogen_bonds(exp_structure)
-        pred_hbonds = self.find_hydrogen_bonds(pred_structure)
+        # Run X3DNA-DSSR for each interaction type
+        interaction_types = ["nt:aa", "aa:aa", "nt:nt"]
         
-        # Use correspondence-aware comparison
-        comparison = self.compare_hydrogen_bonds_with_correspondence(
-            exp_hbonds, pred_hbonds, correspondence_map)
-        statistics = self.calculate_statistics(comparison)
+        for interaction_type in interaction_types:
+            try:
+                # Run x3dna-dssr with bash and jq
+                cmd = f'x3dna-dssr -i="{structure_path}" --get-hbond --json | jq ".hbonds[]? | select(.residue_pair?==\\"{interaction_type}\\")"'
+                
+                result = subprocess.run(
+                    cmd, 
+                    shell=True, 
+                    capture_output=True, 
+                    text=True,
+                    timeout=60
+                )
+                
+                if result.returncode == 0 and result.stdout.strip():
+                    # Parse each line as a separate JSON object
+                    for line in result.stdout.strip().split('\n'):
+                        if line.strip():
+                            try:
+                                hbond_data = json.loads(line)
+                                hbond = self._parse_dssr_hbond(hbond_data, interaction_type)
+                                if hbond:
+                                    hbonds.append(hbond)
+                            except json.JSONDecodeError:
+                                continue
+                                
+            except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError) as e:
+                print(f"Warning: X3DNA-DSSR failed for {interaction_type}: {e}")
+                continue
         
-        # Perform critical DNA-binding residue interaction analysis
-        critical_interactions = self.analyze_critical_dna_binding_interactions(
-            exp_structure, pred_structure, correspondence_map)
+        return hbonds
+    
+    def _parse_dssr_hbond(self, hbond_data: dict, interaction_type: str) -> Optional[HydrogenBond]:
+        """
+        Parse DSSR hydrogen bond data into HydrogenBond object
         
-        # Verify ≥3 critical interactions requirement
-        critical_verification = self.verify_critical_interactions_requirement(critical_interactions)
-        
-        return comparison, statistics, critical_interactions, critical_verification
+        Args:
+            hbond_data: JSON data from DSSR
+            interaction_type: Type of interaction ("nt:aa", "aa:aa", "nt:nt")
+            
+        Returns:
+            HydrogenBond object or None if parsing fails
+        """
+        try:
+            # Extract donor and acceptor information
+            donor_info = hbond_data.get('donor', {})
+            acceptor_info = hbond_data.get('acceptor', {})
+            
+            # Get distance
+            distance = float(hbond_data.get('distance', 0.0))
+            
+            # Get angle if available
+            angle = hbond_data.get('angle')
+            if angle is not None:
+                angle = float(angle)
+            
+            # Parse residue and atom information
+            donor_atom = f"{donor_info.get('chain', '')}:{donor_info.get('residue', '')}:{donor_info.get('atom', '')}"
+            acceptor_atom = f"{acceptor_info.get('chain', '')}:{acceptor_info.get('residue', '')}:{acceptor_info.get('atom', '')}"
+            
+            donor_residue = f"{donor_info.get('chain', '')}:{donor_info.get('residue_name', '')}:{donor_info.get('residue_number', '')}"
+            acceptor_residue = f"{acceptor_info.get('chain', '')}:{acceptor_info.get('residue_name', '')}:{acceptor_info.get('residue_number', '')}"
+            
+            # Determine donor and acceptor types
+            if interaction_type == "nt:aa":
+                donor_type = "dna"
+                acceptor_type = "protein"
+            elif interaction_type == "aa:nt":
+                donor_type = "protein" 
+                acceptor_type = "dna"
+            elif interaction_type == "aa:aa":
+                donor_type = "protein"
+                acceptor_type = "protein"
+            elif interaction_type == "nt:nt":
+                donor_type = "dna"
+                acceptor_type = "dna"
+            else:
+                # Try to infer from residue names
+                donor_name = donor_info.get('residue_name', '').strip()
+                acceptor_name = acceptor_info.get('residue_name', '').strip()
+                
+                donor_type = "dna" if donor_name in {'DA', 'DT', 'DG', 'DC', 'A', 'T', 'G', 'C'} else "protein"
+                acceptor_type = "dna" if acceptor_name in {'DA', 'DT', 'DG', 'DC', 'A', 'T', 'G', 'C'} else "protein"
+            
+            return HydrogenBond(
+                donor_atom=donor_atom,
+                acceptor_atom=acceptor_atom,
+                donor_residue=donor_residue,
+                acceptor_residue=acceptor_residue,
+                donor_type=donor_type,
+                acceptor_type=acceptor_type,
+                distance=distance,
+                angle=angle,
+                interaction_type=interaction_type
+            )
+            
+        except (KeyError, ValueError, TypeError) as e:
+            print(f"Warning: Failed to parse DSSR hydrogen bond data: {e}")
+            return None
     
     def export_results(self, comparison: HBondComparison, statistics: HBondStatistics,
                       critical_interactions: List[CriticalInteraction], critical_verification: Dict,

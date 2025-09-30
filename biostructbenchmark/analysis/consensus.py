@@ -325,3 +325,29 @@ class ConsensusAnalyzer:
                 'electrostatic_disruption': len(critical_electrostatic_errors) > 0
             }
         }
+
+
+def run_consensus_analysis(exp_path: Path, pred_path: Path, 
+                          output_dir: Path, args) -> Optional[Dict]:
+    """Run consensus error mapping"""
+    try:
+        if not args.quiet:
+            print("  → Generating consensus error map...")
+        
+        result = generate_consensus_map(
+            exp_path, pred_path, output_dir,
+            threshold=args.rmsd_threshold
+        )
+        
+        if result and not args.quiet:
+            print("  ✓ Consensus analysis complete")
+        
+        return result
+        
+    except ImportError:
+        if args.verbose:
+            print("  ⚠ Consensus module not available")
+        return None
+    except Exception as e:
+        print(f"  ✗ Consensus analysis failed: {e}")
+        return None
