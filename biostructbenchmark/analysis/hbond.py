@@ -50,11 +50,11 @@ class HBondComparison:
     missing_protein_nucleic: List[HydrogenBond]
     missing_nucleic_nucleic: List[HydrogenBond]
     
-    # Category 3: Additional in predicted structure (novel interactions)
+    # Category 3: Additional in predicted structure (false positive interactions)
     predicted_only: List[HydrogenBond]
-    novel_protein_protein: List[HydrogenBond]
-    novel_protein_nucleic: List[HydrogenBond]
-    novel_nucleic_nucleic: List[HydrogenBond]
+    false_positive_protein_protein: List[HydrogenBond]
+    false_positive_protein_nucleic: List[HydrogenBond]
+    false_positive_nucleic_nucleic: List[HydrogenBond]
     
     bond_distance_differences: Dict[str, float]  # bond_id -> distance difference
 
@@ -370,56 +370,87 @@ class HBondAnalyzer:
             return {}
     
     def _calculate_sequence_similarity(self, seq1: List[str], seq2: List[str]) -> float:
-        """Calculate sequence similarity between two residue lists"""
+        """Calculate sequence similarity between two residue lists using substring matching"""
         if not seq1 or not seq2:
             return 0.0
-        
-        # Simple similarity: count matching residues in overlapping region
+
+        # Method 1: Direct position comparison
         min_len = min(len(seq1), len(seq2))
-        matches = sum(1 for i in range(min_len) if seq1[i] == seq2[i])
-        return matches / min_len
+        direct_matches = sum(1 for i in range(min_len) if seq1[i] == seq2[i])
+        direct_similarity = direct_matches / max(len(seq1), len(seq2))
+
+        # Method 2: Check for substring match (handles N/C-terminal extensions)
+        substring_similarity = 0.0
+        if len(seq1) <= len(seq2):
+            # Check if seq1 is a substring of seq2
+            for offset in range(len(seq2) - len(seq1) + 1):
+                matches = sum(1 for i in range(len(seq1)) if seq1[i] == seq2[offset + i])
+                substring_similarity = max(substring_similarity, matches / len(seq1))
+        else:
+            # Check if seq2 is a substring of seq1
+            for offset in range(len(seq1) - len(seq2) + 1):
+                matches = sum(1 for i in range(len(seq2)) if seq2[i] == seq1[offset + i])
+                substring_similarity = max(substring_similarity, matches / len(seq2))
+
+        # Use the better similarity score
+        return max(direct_similarity, substring_similarity)
     
     def _align_sequences_for_correspondence(self, exp_seq: List[str], pred_seq: List[str]) -> List[Tuple[int, int]]:
         """
-        Simple sequence alignment for correspondence mapping
-        
+        Robust sequence alignment using BioPython PairwiseAligner
+
         Returns list of (exp_index, pred_index) pairs for aligned positions
         """
-        alignment = []
-        
-        # Try direct position matching first
-        min_len = min(len(exp_seq), len(pred_seq))
-        direct_matches = 0
-        
-        for i in range(min_len):
-            if exp_seq[i] == pred_seq[i]:
-                alignment.append((i, i))
-                direct_matches += 1
-        
-        # If direct matching works well (>70%), use it
-        if direct_matches / min_len > 0.7:
-            return alignment
-        
-        # Otherwise, try to find best alignment with offset
-        best_alignment = []
-        best_score = 0
-        
-        # Try different offsets
-        for offset in range(-5, 6):  # Try offsets from -5 to +5
-            current_alignment = []
-            matches = 0
-            
-            for i in range(len(exp_seq)):
-                j = i + offset
-                if 0 <= j < len(pred_seq) and exp_seq[i] == pred_seq[j]:
-                    current_alignment.append((i, j))
-                    matches += 1
-            
-            if matches > best_score:
-                best_score = matches
-                best_alignment = current_alignment
-        
-        return best_alignment
+        from Bio.Align import PairwiseAligner
+
+        # Amino acid and nucleotide 3-letter to 1-letter code mapping
+        aa_codes = {
+            'ALA': 'A', 'CYS': 'C', 'ASP': 'D', 'GLU': 'E', 'PHE': 'F',
+            'GLY': 'G', 'HIS': 'H', 'ILE': 'I', 'LYS': 'K', 'LEU': 'L',
+            'MET': 'M', 'ASN': 'N', 'PRO': 'P', 'GLN': 'Q', 'ARG': 'R',
+            'SER': 'S', 'THR': 'T', 'VAL': 'V', 'TRP': 'W', 'TYR': 'Y',
+            # DNA/RNA nucleotides
+            'DA': 'A', 'DC': 'C', 'DG': 'G', 'DT': 'T',
+            'A': 'A', 'C': 'C', 'G': 'G', 'U': 'U', 'T': 'T'
+        }
+
+        # Convert residue lists to single-letter codes for alignment
+        exp_str = ''.join([aa_codes.get(r, 'X') for r in exp_seq])
+        pred_str = ''.join([aa_codes.get(r, 'X') for r in pred_seq])
+
+        # Create pairwise aligner
+        aligner = PairwiseAligner()
+        aligner.match_score = 2
+        aligner.mismatch_score = -1
+        aligner.open_gap_score = -2
+        aligner.extend_gap_score = -0.5
+
+        # Perform alignment
+        alignments = aligner.align(exp_str, pred_str)
+        if not alignments:
+            print("No alignment found, returning empty correspondence")
+            return []
+
+        best_alignment = alignments[0]
+
+        # Map alignment back to residue pairs
+        aligned_pairs = []
+
+        # Get alignment coordinates to map back to residues
+        for exp_block, pred_block in zip(best_alignment.aligned[0], best_alignment.aligned[1]):
+            exp_start, exp_end = exp_block
+            pred_start, pred_end = pred_block
+
+            # Align residues in this block
+            block_length = min(exp_end - exp_start, pred_end - pred_start)
+
+            for i in range(block_length):
+                exp_idx = exp_start + i
+                pred_idx = pred_start + i
+                if exp_idx < len(exp_seq) and pred_idx < len(pred_seq):
+                    aligned_pairs.append((exp_idx, pred_idx))
+
+        return aligned_pairs
     
     def compare_hydrogen_bonds_with_correspondence(self, experimental_hbonds: List[HydrogenBond],
                                                   predicted_hbonds: List[HydrogenBond],
@@ -457,11 +488,11 @@ class HBondAnalyzer:
         missing_protein_protein = []
         missing_protein_nucleic = []
         missing_nucleic_nucleic = []
-        
-        novel_in_predicted = list(predicted_hbonds)  # Start with all predicted bonds
-        novel_protein_protein = []
-        novel_protein_nucleic = []
-        novel_nucleic_nucleic = []
+
+        false_positive_in_predicted = list(predicted_hbonds)  # Start with all predicted bonds
+        false_positive_protein_protein = []
+        false_positive_protein_nucleic = []
+        false_positive_nucleic_nucleic = []
         
         distance_differences = {}
         
@@ -501,22 +532,22 @@ class HBondAnalyzer:
                             conserved_nucleic_nucleic.append(bond_pair)
                         
                         distance_differences[exp_hb.bond_id] = matched_bond.distance - exp_hb.distance
-                        
-                        # Remove the specific matched bond from novel list
-                        if matched_bond in novel_in_predicted:
-                            novel_in_predicted.remove(matched_bond)
-                            
+
+                        # Remove the specific matched bond from false positive list
+                        if matched_bond in false_positive_in_predicted:
+                            false_positive_in_predicted.remove(matched_bond)
+
                         # Also remove any other predicted bonds between the same residue pair
                         # to prevent double-counting when structures have multiple H-bonds per residue pair
                         bonds_to_remove = []
-                        for novel_bond in novel_in_predicted:
-                            novel_donor_key = self._extract_dssr_residue_key(novel_bond.donor_atom)
-                            novel_acceptor_key = self._extract_dssr_residue_key(novel_bond.acceptor_atom)
-                            if (novel_donor_key == pred_donor_key and novel_acceptor_key == pred_acceptor_key):
-                                bonds_to_remove.append(novel_bond)
-                        
+                        for fp_bond in false_positive_in_predicted:
+                            fp_donor_key = self._extract_dssr_residue_key(fp_bond.donor_atom)
+                            fp_acceptor_key = self._extract_dssr_residue_key(fp_bond.acceptor_atom)
+                            if (fp_donor_key == pred_donor_key and fp_acceptor_key == pred_acceptor_key):
+                                bonds_to_remove.append(fp_bond)
+
                         for bond in bonds_to_remove:
-                            novel_in_predicted.remove(bond)
+                            false_positive_in_predicted.remove(bond)
                         
                         print(f"CONSERVED [{interaction_type}]: {exp_donor_key} -> {exp_acceptor_key} "
                               f"(Δd={matched_bond.distance - exp_hb.distance:.2f}Å)")
@@ -537,18 +568,18 @@ class HBondAnalyzer:
                 self._categorize_missing_bond(exp_hb, missing_in_predicted,
                                             missing_protein_protein, missing_protein_nucleic, missing_nucleic_nucleic)
         
-        # Category 3: Sub-categorize novel interactions
-        for novel_hb in novel_in_predicted:
-            interaction_type = self._get_interaction_type(novel_hb)
+        # Category 3: Sub-categorize false positive interactions
+        for fp_hb in false_positive_in_predicted:
+            interaction_type = self._get_interaction_type(fp_hb)
             if interaction_type == "protein:protein":
-                novel_protein_protein.append(novel_hb)
+                false_positive_protein_protein.append(fp_hb)
             elif interaction_type == "protein:nucleic":
-                novel_protein_nucleic.append(novel_hb)
+                false_positive_protein_nucleic.append(fp_hb)
             elif interaction_type == "nucleic:nucleic":
-                novel_nucleic_nucleic.append(novel_hb)
-            
-            print(f"NOVEL [{interaction_type}]: {novel_hb.donor_residue} -> {novel_hb.acceptor_residue} "
-                  f"(d={novel_hb.distance:.2f}Å)")
+                false_positive_nucleic_nucleic.append(fp_hb)
+
+            print(f"FALSE_POSITIVE [{interaction_type}]: {fp_hb.donor_residue} -> {fp_hb.acceptor_residue} "
+                  f"(d={fp_hb.distance:.2f}Å)")
         
         # Print summary
         print(f"\n=== Hydrogen Bond Alignment Summary ===")
@@ -556,8 +587,8 @@ class HBondAnalyzer:
               f"PN:{len(conserved_protein_nucleic)}, NN:{len(conserved_nucleic_nucleic)})")
         print(f"Category 2 - Missing: {len(missing_in_predicted)} (PP:{len(missing_protein_protein)}, "
               f"PN:{len(missing_protein_nucleic)}, NN:{len(missing_nucleic_nucleic)})")
-        print(f"Category 3 - Novel: {len(novel_in_predicted)} (PP:{len(novel_protein_protein)}, "
-              f"PN:{len(novel_protein_nucleic)}, NN:{len(novel_nucleic_nucleic)})")
+        print(f"Category 3 - False Positives: {len(false_positive_in_predicted)} (PP:{len(false_positive_protein_protein)}, "
+              f"PN:{len(false_positive_protein_nucleic)}, NN:{len(false_positive_nucleic_nucleic)})")
         
         return HBondComparison(
             experimental_bonds=experimental_hbonds,
@@ -570,10 +601,10 @@ class HBondAnalyzer:
             missing_protein_protein=missing_protein_protein,
             missing_protein_nucleic=missing_protein_nucleic,
             missing_nucleic_nucleic=missing_nucleic_nucleic,
-            predicted_only=novel_in_predicted,
-            novel_protein_protein=novel_protein_protein,
-            novel_protein_nucleic=novel_protein_nucleic,
-            novel_nucleic_nucleic=novel_nucleic_nucleic,
+            predicted_only=false_positive_in_predicted,
+            false_positive_protein_protein=false_positive_protein_protein,
+            false_positive_protein_nucleic=false_positive_protein_nucleic,
+            false_positive_nucleic_nucleic=false_positive_nucleic_nucleic,
             bond_distance_differences=distance_differences
         )
     
@@ -771,13 +802,13 @@ class HBondAnalyzer:
         
         # Count by interaction types
         pp_exp = len(comparison.common_protein_protein) + len(comparison.missing_protein_protein)
-        pp_pred = len(comparison.common_protein_protein) + len(comparison.novel_protein_protein)
-        
+        pp_pred = len(comparison.common_protein_protein) + len(comparison.false_positive_protein_protein)
+
         pn_exp = len(comparison.common_protein_nucleic) + len(comparison.missing_protein_nucleic)
-        pn_pred = len(comparison.common_protein_nucleic) + len(comparison.novel_protein_nucleic)
-        
+        pn_pred = len(comparison.common_protein_nucleic) + len(comparison.false_positive_protein_nucleic)
+
         nn_exp = len(comparison.common_nucleic_nucleic) + len(comparison.missing_nucleic_nucleic)
-        nn_pred = len(comparison.common_nucleic_nucleic) + len(comparison.novel_nucleic_nucleic)
+        nn_pred = len(comparison.common_nucleic_nucleic) + len(comparison.false_positive_nucleic_nucleic)
         
         return HBondStatistics(
             total_experimental=total_exp,
@@ -833,7 +864,7 @@ class HBondAnalyzer:
                 experimental_bonds=[], predicted_bonds=[], common_bonds=[],
                 common_protein_protein=[], common_protein_nucleic=[], common_nucleic_nucleic=[],
                 experimental_only=[], missing_protein_protein=[], missing_protein_nucleic=[], missing_nucleic_nucleic=[],
-                predicted_only=[], novel_protein_protein=[], novel_protein_nucleic=[], novel_nucleic_nucleic=[],
+                predicted_only=[], false_positive_protein_protein=[], false_positive_protein_nucleic=[], false_positive_nucleic_nucleic=[],
                 bond_distance_differences={}
             )
             empty_stats = HBondStatistics(
@@ -862,9 +893,12 @@ class HBondAnalyzer:
         
         # Export detailed hydrogen bond lists
         self._export_hbond_details(comparison, output_dir / f"{pair_id}_hbond_details.csv")
-        
+
         # Export comparison summary
         self._export_hbond_summary(comparison, statistics, output_dir / f"{pair_id}_hbond_summary.csv")
+
+        # Export detailed text report
+        self._export_hbond_report(comparison, statistics, output_dir / f"{pair_id}_detailed_report.txt", pair_id)
     
     def _export_hbond_details(self, comparison: HBondComparison, output_path: Path):
         """Export detailed hydrogen bond information"""
@@ -881,7 +915,7 @@ class HBondAnalyzer:
                 'donor_residue_pred': pred_hb.donor_residue,
                 'acceptor_residue_pred': pred_hb.acceptor_residue,
                 'distance_pred': pred_hb.distance,
-                'distance_difference': pred_hb.distance - exp_hb.distance
+                'distance_difference': round(pred_hb.distance - exp_hb.distance, 3)
             })
         
         # Missing bonds
@@ -898,10 +932,10 @@ class HBondAnalyzer:
                 'distance_difference': None
             })
         
-        # Novel bonds
+        # False positive bonds
         for hb in comparison.predicted_only:
             data.append({
-                'bond_type': 'novel',
+                'bond_type': 'false_positive',
                 'interaction_type': self._get_interaction_type(hb),
                 'donor_residue_exp': None,
                 'acceptor_residue_exp': None,
@@ -929,10 +963,10 @@ class HBondAnalyzer:
             {'metric': 'missing_protein_protein', 'value': len(comparison.missing_protein_protein)},
             {'metric': 'missing_protein_nucleic', 'value': len(comparison.missing_protein_nucleic)},
             {'metric': 'missing_nucleic_nucleic', 'value': len(comparison.missing_nucleic_nucleic)},
-            {'metric': 'novel_bonds_total', 'value': statistics.total_predicted_only},
-            {'metric': 'novel_protein_protein', 'value': len(comparison.novel_protein_protein)},
-            {'metric': 'novel_protein_nucleic', 'value': len(comparison.novel_protein_nucleic)},
-            {'metric': 'novel_nucleic_nucleic', 'value': len(comparison.novel_nucleic_nucleic)},
+            {'metric': 'false_positive_bonds_total', 'value': statistics.total_predicted_only},
+            {'metric': 'false_positive_protein_protein', 'value': len(comparison.false_positive_protein_protein)},
+            {'metric': 'false_positive_protein_nucleic', 'value': len(comparison.false_positive_protein_nucleic)},
+            {'metric': 'false_positive_nucleic_nucleic', 'value': len(comparison.false_positive_nucleic_nucleic)},
             {'metric': 'conservation_rate', 'value': statistics.conservation_rate},
             {'metric': 'prediction_accuracy', 'value': statistics.prediction_accuracy},
             {'metric': 'mean_distance_difference', 'value': statistics.mean_distance_difference}
@@ -940,3 +974,81 @@ class HBondAnalyzer:
         
         df = pd.DataFrame(summary_data)
         df.to_csv(output_path, index=False)
+
+    def _export_hbond_report(self, comparison: HBondComparison, statistics: HBondStatistics,
+                            output_path: Path, pair_id: str):
+        """Export detailed text report of hydrogen bond analysis"""
+        with open(output_path, 'w') as f:
+            # Header
+            f.write("HYDROGEN BOND ANALYSIS REPORT\n")
+            f.write("EXPERIMENTAL vs PREDICTED STRUCTURE COMPARISON\n")
+            f.write("=" * 70 + "\n\n")
+
+            # Structure information
+            f.write("STRUCTURE INFORMATION\n")
+            f.write("-" * 25 + "\n")
+            parts = pair_id.split("_vs_")
+            if len(parts) == 2:
+                f.write(f"Experimental: {parts[0]}\n")
+                f.write(f"Predicted: {parts[1]}\n\n")
+            else:
+                f.write(f"Structure Pair: {pair_id}\n\n")
+
+            # Analysis summary
+            f.write("ANALYSIS SUMMARY\n")
+            f.write("-" * 20 + "\n")
+            f.write(f"Total experimental hydrogen bonds: {statistics.total_experimental}\n")
+            f.write(f"Total predicted hydrogen bonds: {statistics.total_predicted}\n")
+            f.write(f"Conserved bonds: {statistics.total_common}\n")
+            f.write(f"Missing bonds: {statistics.total_experimental_only}\n")
+            f.write(f"False positive bonds: {statistics.total_predicted_only}\n")
+            f.write(f"Conservation rate: {statistics.conservation_rate:.1%}\n")
+            f.write(f"Prediction accuracy: {statistics.prediction_accuracy:.1%}\n")
+            f.write(f"Mean distance difference: {statistics.mean_distance_difference:.3f} Å\n\n")
+
+            # Detailed interaction analysis
+            f.write("DETAILED INTERACTION ANALYSIS\n")
+            f.write("-" * 35 + "\n")
+            f.write("PROTEIN-PROTEIN INTERACTIONS:\n")
+            f.write(f"  Conserved: {len(comparison.common_protein_protein)}\n")
+            f.write(f"  Missing:   {len(comparison.missing_protein_protein)}\n")
+            f.write(f"  False Pos: {len(comparison.false_positive_protein_protein)}\n\n")
+
+            f.write("PROTEIN-NUCLEIC INTERACTIONS:\n")
+            f.write(f"  Conserved: {len(comparison.common_protein_nucleic)}\n")
+            f.write(f"  Missing:   {len(comparison.missing_protein_nucleic)}\n")
+            f.write(f"  False Pos: {len(comparison.false_positive_protein_nucleic)}\n\n")
+
+            f.write("NUCLEIC-NUCLEIC INTERACTIONS:\n")
+            f.write(f"  Conserved: {len(comparison.common_nucleic_nucleic)}\n")
+            f.write(f"  Missing:   {len(comparison.missing_nucleic_nucleic)}\n")
+            f.write(f"  False Pos: {len(comparison.false_positive_nucleic_nucleic)}\n\n")
+
+            # Conserved bonds (first 20)
+            f.write("CONSERVED HYDROGEN BONDS (First 20)\n")
+            f.write("-" * 40 + "\n")
+            for i, (exp_hb, pred_hb) in enumerate(comparison.common_bonds[:20], 1):
+                delta = pred_hb.distance - exp_hb.distance
+                sign = "+" if delta >= 0 else ""
+                f.write(f"{i:2d}. {exp_hb.donor_residue} -> {exp_hb.acceptor_residue}\n")
+                f.write(f"    Exp: {exp_hb.distance:.2f} Å, Pred: {pred_hb.distance:.2f} Å (Δ={sign}{delta:.2f} Å)\n")
+                f.write(f"    Type: {self._get_interaction_type(exp_hb)}\n")
+                f.write(f"    Atoms: {exp_hb.donor_atom} -> {exp_hb.acceptor_atom}\n\n")
+
+            # Missing bonds (first 10)
+            f.write("MISSING HYDROGEN BONDS (First 10)\n")
+            f.write("-" * 35 + "\n")
+            for i, hb in enumerate(comparison.experimental_only[:10], 1):
+                f.write(f"{i:2d}. {hb.donor_residue} -> {hb.acceptor_residue}\n")
+                f.write(f"    Distance: {hb.distance:.2f} Å\n")
+                f.write(f"    Type: {self._get_interaction_type(hb)}\n")
+                f.write(f"    Atoms: {hb.donor_atom} -> {hb.acceptor_atom}\n\n")
+
+            # False positive bonds (first 10)
+            f.write("FALSE POSITIVE HYDROGEN BONDS (First 10)\n")
+            f.write("-" * 32 + "\n")
+            for i, hb in enumerate(comparison.predicted_only[:10], 1):
+                f.write(f"{i:2d}. {hb.donor_residue} -> {hb.acceptor_residue}\n")
+                f.write(f"    Distance: {hb.distance:.2f} Å\n")
+                f.write(f"    Type: {self._get_interaction_type(hb)}\n")
+                f.write(f"    Atoms: {hb.donor_atom} -> {hb.acceptor_atom}\n\n")

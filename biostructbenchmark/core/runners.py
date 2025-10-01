@@ -139,14 +139,32 @@ def run_hydrogen_bond_analysis(exp_path: Path, pred_path: Path,
         
         # Combine correspondence maps
         full_correspondence = {**protein_correspondence, **dna_correspondence}
-        
+
+        # Convert tuple-based correspondence to DSSR-format strings for H-bond analysis
+        # Tuple format: (('A', (' ', 8, ' ')), ('A', (' ', 8, ' ')))
+        # DSSR format: "A.PRO8" -> "A.PRO8"
+        dssr_correspondence = {}
+        for obs_key, pred_key in full_correspondence.items():
+            obs_chain_id, obs_res_id = obs_key
+            pred_chain_id, pred_res_id = pred_key
+
+            # Get residue objects to extract residue names
+            obs_res = observed[0][obs_chain_id][obs_res_id]
+            pred_res = predicted[0][pred_chain_id][pred_res_id]
+
+            # Create DSSR-format keys: "CHAIN.RESNAMERESNUM"
+            obs_dssr_key = f"{obs_chain_id}.{obs_res.get_resname().strip()}{obs_res_id[1]}"
+            pred_dssr_key = f"{pred_chain_id}.{pred_res.get_resname().strip()}{pred_res_id[1]}"
+
+            dssr_correspondence[obs_dssr_key] = pred_dssr_key
+
         if not args.quiet:
-            print(f"  → Found correspondence for {len(full_correspondence)} residue pairs")
-            
+            print(f"  → Found correspondence for {len(dssr_correspondence)} residue pairs")
+
         # Initialize analyzer and run analysis with correspondence
         analyzer = HBondAnalyzer()
         comparison, statistics = analyzer.analyze_structures_with_correspondence(
-            exp_path, pred_path, full_correspondence)
+            exp_path, pred_path, dssr_correspondence)
         
         # Export results
         hbond_output = output_dir / "hydrogen_bonds"
