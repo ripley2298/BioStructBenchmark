@@ -383,30 +383,32 @@ def create_correspondence_map(observed: BioStructure, predicted: BioStructure,
             if pred_data['chain_id'] in matched_pred_chains:
                 continue  # Skip already matched chains
 
-            # Calculate sequence similarity using alignment
-            # Try both simple position match and sequence alignment
+            # Calculate sequence similarity using BioPython alignment to handle gaps/indels
             pred_seq = pred_data['sequence']
 
-            # Method 1: Direct position comparison
-            min_len = min(len(obs_seq), len(pred_seq))
-            direct_matches = sum(1 for i in range(min_len) if obs_seq[i] == pred_seq[i])
-            direct_similarity = direct_matches / max(len(obs_seq), len(pred_seq))
+            # Use BioPython PairwiseAligner for robust similarity calculation
+            from Bio.Align import PairwiseAligner
+            aligner = PairwiseAligner()
+            aligner.match_score = 2
+            aligner.mismatch_score = -1
+            aligner.open_gap_score = -2
+            aligner.extend_gap_score = -0.5
 
-            # Method 2: Check for substring match (handles N/C-terminal extensions)
-            substring_similarity = 0.0
-            if len(obs_seq) <= len(pred_seq):
-                # Check if obs is a substring of pred
-                for offset in range(len(pred_seq) - len(obs_seq) + 1):
-                    matches = sum(1 for i in range(len(obs_seq)) if obs_seq[i] == pred_seq[offset + i])
-                    substring_similarity = max(substring_similarity, matches / len(obs_seq))
+            alignments = aligner.align(obs_seq, pred_seq)
+            if alignments:
+                best_alignment = alignments[0]
+                # Calculate similarity as: matches / average_length
+                # Score = 2*matches - mismatches - gaps*penalty
+                # Approximate matches from score
+                max_possible_score = 2 * min(len(obs_seq), len(pred_seq))
+                similarity = best_alignment.score / max_possible_score if max_possible_score > 0 else 0
+                # Normalize to 0-1 range (similarity can slightly exceed 1 with good alignment)
+                similarity = min(1.0, max(0.0, similarity))
             else:
-                # Check if pred is a substring of obs
-                for offset in range(len(obs_seq) - len(pred_seq) + 1):
-                    matches = sum(1 for i in range(len(pred_seq)) if pred_seq[i] == obs_seq[offset + i])
-                    substring_similarity = max(substring_similarity, matches / len(pred_seq))
-
-            # Use the better similarity score
-            similarity = max(direct_similarity, substring_similarity)
+                # Fallback to simple comparison
+                min_len = min(len(obs_seq), len(pred_seq))
+                direct_matches = sum(1 for i in range(min_len) if obs_seq[i] == pred_seq[i])
+                similarity = direct_matches / max(len(obs_seq), len(pred_seq))
 
             if similarity > best_score:
                 best_score = similarity

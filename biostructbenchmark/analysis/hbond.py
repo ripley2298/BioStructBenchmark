@@ -502,10 +502,10 @@ class HBondAnalyzer:
                 print(f"DEBUG: Processing exp bond {i+1}: {exp_hb.donor_atom} -> {exp_hb.acceptor_atom}")
                 print(f"       Residues: {exp_hb.donor_residue} -> {exp_hb.acceptor_residue}")
             
-            # Extract DSSR-format keys from hydrogen bond atoms
-            # Format: "N@A.ALA16" -> "A.ALA16"
-            exp_donor_key = self._extract_dssr_residue_key(exp_hb.donor_atom)
-            exp_acceptor_key = self._extract_dssr_residue_key(exp_hb.acceptor_atom)
+            # Extract DSSR-format keys from hydrogen bond residues
+            # Use residue format directly: "A:ALA:16" (not from atom which uses dot format)
+            exp_donor_key = exp_hb.donor_residue
+            exp_acceptor_key = exp_hb.acceptor_residue
             
             if exp_donor_key and exp_acceptor_key:
                 # Look up corresponding predicted residues using sequence alignment
@@ -541,8 +541,8 @@ class HBondAnalyzer:
                         # to prevent double-counting when structures have multiple H-bonds per residue pair
                         bonds_to_remove = []
                         for fp_bond in false_positive_in_predicted:
-                            fp_donor_key = self._extract_dssr_residue_key(fp_bond.donor_atom)
-                            fp_acceptor_key = self._extract_dssr_residue_key(fp_bond.acceptor_atom)
+                            fp_donor_key = fp_bond.donor_residue
+                            fp_acceptor_key = fp_bond.acceptor_residue
                             if (fp_donor_key == pred_donor_key and fp_acceptor_key == pred_acceptor_key):
                                 bonds_to_remove.append(fp_bond)
 
@@ -718,10 +718,10 @@ class HBondAnalyzer:
         best_compatibility = 0
         
         for pred_hb in predicted_hbonds:
-            # Extract DSSR keys from predicted bond
-            pred_hb_donor_key = self._extract_dssr_residue_key(pred_hb.donor_atom)
-            pred_hb_acceptor_key = self._extract_dssr_residue_key(pred_hb.acceptor_atom)
-            
+            # Get residue keys directly from predicted bond (already in colon format)
+            pred_hb_donor_key = pred_hb.donor_residue
+            pred_hb_acceptor_key = pred_hb.acceptor_residue
+
             # Check if this bond involves the sequence-aligned residues
             if (pred_hb_donor_key == pred_donor_key and pred_hb_acceptor_key == pred_acceptor_key):
                 

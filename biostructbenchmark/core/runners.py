@@ -142,7 +142,7 @@ def run_hydrogen_bond_analysis(exp_path: Path, pred_path: Path,
 
         # Convert tuple-based correspondence to DSSR-format strings for H-bond analysis
         # Tuple format: (('A', (' ', 8, ' ')), ('A', (' ', 8, ' ')))
-        # DSSR format: "A.PRO8" -> "A.PRO8"
+        # DSSR format: "A:PRO:8" -> "A:PRO:8" (chain:resname:resnum)
         dssr_correspondence = {}
         for obs_key, pred_key in full_correspondence.items():
             obs_chain_id, obs_res_id = obs_key
@@ -152,9 +152,9 @@ def run_hydrogen_bond_analysis(exp_path: Path, pred_path: Path,
             obs_res = observed[0][obs_chain_id][obs_res_id]
             pred_res = predicted[0][pred_chain_id][pred_res_id]
 
-            # Create DSSR-format keys: "CHAIN.RESNAMERESNUM"
-            obs_dssr_key = f"{obs_chain_id}.{obs_res.get_resname().strip()}{obs_res_id[1]}"
-            pred_dssr_key = f"{pred_chain_id}.{pred_res.get_resname().strip()}{pred_res_id[1]}"
+            # Create DSSR-format keys: "CHAIN:RESNAME:RESNUM"
+            obs_dssr_key = f"{obs_chain_id}:{obs_res.get_resname().strip()}:{obs_res_id[1]}"
+            pred_dssr_key = f"{pred_chain_id}:{pred_res.get_resname().strip()}:{pred_res_id[1]}"
 
             dssr_correspondence[obs_dssr_key] = pred_dssr_key
 
