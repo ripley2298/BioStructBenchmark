@@ -1,77 +1,61 @@
 """
 biostructbenchmark/analysis/hbond.py
-Hydrogen bond analysis for protein-DNA interactions
+Hydrogen bond analysis for protein-DNA interactions using X3DNA-DSSR
 """
 
+import subprocess
+import json
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Set
+from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
-from collections import defaultdict
-import itertools
-
-from Bio.PDB import Structure, Selection, NeighborSearch
-from Bio.PDB.vectors import Vector
-from biostructbenchmark.core.io import get_structure
+from Bio.PDB import PDBParser
 
 
 @dataclass
 class HydrogenBond:
     """Container for hydrogen bond information"""
-    donor_atom: str  # Format: chain:residue:atom (e.g., A:SER:4:OG)
-    acceptor_atom: str  # Format: chain:residue:atom (e.g., B:DG:15:O6)
-    donor_residue: str  # Format: chain:residue_name:position (e.g., A:SER:4)
-    acceptor_residue: str  # Format: chain:residue_name:position (e.g., B:DG:15)
-    donor_type: str  # 'protein' or 'dna'
-    acceptor_type: str  # 'protein' or 'dna'
+    donor_atom: str  # Format: chain:residue:atom
+    acceptor_atom: str  # Format: chain:residue:atom
+    donor_residue: str  # Format: chain:residue_name:position
+    acceptor_residue: str  # Format: chain:residue_name:position
+    donor_type: str  # 'protein' or 'nucleic'
+    acceptor_type: str  # 'protein' or 'nucleic'
     distance: float  # Angstroms
-    angle: Optional[float] = None  # Degrees (D-H-A angle if hydrogen available)
-    interaction_type: str = "protein_dna"  # Type of interaction
+    angle: Optional[float] = None  # Degrees
+    interaction_type: str = "unknown"  # Type of interaction
     
     @property
     def bond_id(self) -> str:
         """Unique identifier for this hydrogen bond"""
         return f"{self.donor_atom}-->{self.acceptor_atom}"
-    
-    @property
-    def is_protein_dna(self) -> bool:
-        """Check if this is a protein-DNA interaction"""
-        return (self.donor_type == 'protein' and self.acceptor_type == 'dna') or \
-               (self.donor_type == 'dna' and self.acceptor_type == 'protein')
-
-
-@dataclass 
-class CriticalInteraction:
-    """Container for critical DNA-binding residue interactions"""
-    residue_name: str  # e.g., "ARG", "GLN", "LYS"
-    residue_id: str   # e.g., "A:ARG:156"
-    interaction_type: str  # e.g., "Arg_NH3_to_phosphate", "Gln_amide_to_base"
-    experimental_distance: Optional[float] = None  # Angstroms
-    predicted_distance: Optional[float] = None    # Angstroms
-    distance_error: Optional[float] = None        # |predicted - experimental|
-    found_in_experimental: bool = False
-    found_in_predicted: bool = False
-    
-    @property
-    def is_conserved(self) -> bool:
-        """Check if interaction is present in both structures"""
-        return self.found_in_experimental and self.found_in_predicted
-    
-    @property 
-    def is_missing_in_prediction(self) -> bool:
-        """Check if interaction is missing in predicted structure"""
-        return self.found_in_experimental and not self.found_in_predicted
 
 
 @dataclass
 class HBondComparison:
-    """Container for hydrogen bond network comparison"""
+    """Container for hydrogen bond network comparison with interaction type sub-groupings"""
     experimental_bonds: List[HydrogenBond]
     predicted_bonds: List[HydrogenBond]
+    
+    # Category 1: Present in both structures (conserved interactions)
     common_bonds: List[Tuple[HydrogenBond, HydrogenBond]]  # (exp, pred) pairs
+    common_protein_protein: List[Tuple[HydrogenBond, HydrogenBond]]
+    common_protein_nucleic: List[Tuple[HydrogenBond, HydrogenBond]]
+    common_nucleic_nucleic: List[Tuple[HydrogenBond, HydrogenBond]]
+    
+    # Category 2: Absent in predicted structure (missing interactions)
     experimental_only: List[HydrogenBond]
+    missing_protein_protein: List[HydrogenBond]
+    missing_protein_nucleic: List[HydrogenBond]
+    missing_nucleic_nucleic: List[HydrogenBond]
+    
+    # Category 3: Additional in predicted structure (novel interactions)
     predicted_only: List[HydrogenBond]
+    novel_protein_protein: List[HydrogenBond]
+    novel_protein_nucleic: List[HydrogenBond]
+    novel_nucleic_nucleic: List[HydrogenBond]
+    
     bond_distance_differences: Dict[str, float]  # bond_id -> distance difference
 
 
@@ -86,450 +70,714 @@ class HBondStatistics:
     conservation_rate: float  # fraction of experimental bonds preserved
     prediction_accuracy: float  # fraction of predicted bonds that are correct
     mean_distance_difference: float  # for common bonds
-    protein_to_dna_bonds: Dict[str, int]  # experimental vs predicted counts
-    dna_to_protein_bonds: Dict[str, int]  # experimental vs predicted counts
+    protein_to_protein_counts: Dict[str, int]  # experimental vs predicted counts
+    protein_to_nucleic_counts: Dict[str, int]  # experimental vs predicted counts
+    nucleic_to_nucleic_counts: Dict[str, int]  # experimental vs predicted counts
 
 
 class HBondAnalyzer:
-    """Analyze hydrogen bonds in protein-DNA complexes"""
+    """Analyze hydrogen bonds in protein-DNA complexes using X3DNA-DSSR"""
     
-    def __init__(self, distance_cutoff: float = 3.5, angle_cutoff: float = 120.0):
+    def __init__(self, distance_tolerance: float = 0.5):
         """
         Initialize hydrogen bond analyzer
         
         Args:
-            distance_cutoff: Maximum distance for hydrogen bond (Angstroms)
-            angle_cutoff: Minimum D-H-A angle for hydrogen bond (degrees)
+            distance_tolerance: Distance tolerance for matching bonds (Angstroms)
         """
-        self.distance_cutoff = distance_cutoff
-        self.angle_cutoff = angle_cutoff
-        
-        # Define hydrogen bond donors and acceptors
-        self.protein_donors = {
-            # Backbone
-            'N': ['H'],  # Amide nitrogen
-            # Side chains
-            'OH': ['H'],  # Serine, Threonine, Tyrosine
-            'SH': ['H'],  # Cysteine
-            'NH': ['H'],  # Asparagine, Glutamine amide
-            'NH2': ['H1', 'H2'],  # Asparagine, Glutamine amide
-            'NH3': ['H1', 'H2', 'H3'],  # Lysine
-            'NE': ['HE'],  # Arginine
-            'NH1': ['HH11', 'HH12'],  # Arginine
-            'NH2': ['HH21', 'HH22'],  # Arginine
-            'NE2': ['HE2'],  # Histidine
-            'ND1': ['HD1'],  # Histidine
-            'NZ': ['HZ1', 'HZ2', 'HZ3']  # Lysine
-        }
-        
-        self.protein_acceptors = {
-            # Backbone
-            'O': [],  # Carbonyl oxygen
-            # Side chains
-            'OD1': [], 'OD2': [],  # Aspartate
-            'OE1': [], 'OE2': [],  # Glutamate
-            'OG': [], 'OG1': [],  # Serine, Threonine
-            'OH': [],  # Tyrosine
-            'ND1': [], 'NE2': [],  # Histidine (can be acceptor)
-            'SD': []  # Cysteine sulfur
-        }
-        
-        self.dna_donors = {
-            'N1': ['H1'],  # Guanine
-            'N2': ['H21', 'H22'],  # Guanine
-            'N4': ['H41', 'H42'],  # Cytosine
-            'N6': ['H61', 'H62']   # Adenine
-        }
-        
-        self.dna_acceptors = {
-            'O2': [],  # Cytosine, Thymine
-            'O4': [],  # Thymine
-            'O6': [],  # Guanine
-            'N1': [],  # Adenine (can be acceptor)
-            'N3': [],  # Adenine, Cytosine
-            'N7': [],  # Adenine, Guanine
-            # Phosphate groups
-            'O1P': [], 'O2P': [], 'OP1': [], 'OP2': [],
-            # Sugar groups
-            "O2'": [], "O3'": [], "O4'": [], "O5'": []
-        }
+        self.distance_tolerance = distance_tolerance
+        self.parser = PDBParser(QUIET=True)
     
-    def _classify_molecule_type(self, residue) -> str:
-        """Classify residue as protein or DNA"""
-        dna_residues = {'DA', 'DT', 'DG', 'DC', 'A', 'T', 'G', 'C'}
-        protein_residues = {
-            'ALA', 'ARG', 'ASN', 'ASP', 'CYS', 'GLN', 'GLU', 'GLY', 'HIS', 'ILE',
-            'LEU', 'LYS', 'MET', 'PHE', 'PRO', 'SER', 'THR', 'TRP', 'TYR', 'VAL'
-        }
-        
-        resname = residue.get_resname().strip()
-        
-        if resname in dna_residues:
-            return 'dna'
-        elif resname in protein_residues:
-            return 'protein'
-        else:
-            # Try to infer from atom names
-            atom_names = [atom.get_name() for atom in residue.get_atoms()]
-            if any(name.startswith(('P', 'O1P', 'O2P', "O5'", "C5'")) for name in atom_names):
-                return 'dna'
-            else:
-                return 'protein'
-    
-    def _get_residue_identifier(self, residue) -> str:
-        """Get residue identifier in format chain:residue_name:position"""
-        chain_id = residue.get_parent().id
-        res_name = residue.get_resname().strip()
-        res_num = residue.id[1]
-        return f"{chain_id}:{res_name}:{res_num}"
-    
-    def _get_atom_identifier(self, atom) -> str:
-        """Get atom identifier in format chain:residue:position:atom"""
-        residue = atom.get_parent()
-        chain_id = residue.get_parent().id
-        res_name = residue.get_resname().strip()
-        res_num = residue.id[1]
-        atom_name = atom.get_name()
-        return f"{chain_id}:{res_name}:{res_num}:{atom_name}"
-    
-    def _is_hydrogen_bond_geometry(self, donor_atom, acceptor_atom, 
-                                   hydrogen_atom=None) -> Tuple[bool, float, Optional[float]]:
+    def extract_hbonds_with_dssr(self, structure_path: Path) -> List[HydrogenBond]:
         """
-        Check if atoms satisfy hydrogen bond geometric criteria
+        Extract hydrogen bonds using X3DNA-DSSR
         
-        Returns:
-            (is_hbond, distance, angle)
-        """
-        # Calculate distance
-        distance = donor_atom - acceptor_atom
-        
-        if distance > self.distance_cutoff:
-            return False, distance, None
-        
-        # If hydrogen is available, calculate D-H-A angle
-        angle = None
-        if hydrogen_atom is not None:
-            try:
-                # Vectors for angle calculation
-                dh_vector = hydrogen_atom.get_vector() - donor_atom.get_vector()
-                ha_vector = acceptor_atom.get_vector() - hydrogen_atom.get_vector()
-                
-                # Calculate angle in degrees
-                cos_angle = (dh_vector * ha_vector) / (dh_vector.norm() * ha_vector.norm())
-                cos_angle = max(-1.0, min(1.0, cos_angle))  # Clamp to [-1, 1]
-                angle = np.degrees(np.arccos(cos_angle))
-                
-                if angle < self.angle_cutoff:
-                    return False, distance, angle
-                    
-            except (ValueError, ZeroDivisionError):
-                # If angle calculation fails, rely only on distance
-                pass
-        
-        return True, distance, angle
-    
-    def find_hydrogen_bonds(self, structure) -> List[HydrogenBond]:
-        """
-        Find hydrogen bonds in a structure
+        Uses: x3dna-dssr -i=input_file --get-hbond --json
         
         Args:
-            structure: BioPython Structure object
+            structure_path: Path to structure file
             
         Returns:
             List of HydrogenBond objects
         """
-        if not structure:
-            return []
-        
         hbonds = []
         
-        # Get all atoms for neighbor search
-        atoms = Selection.unfold_entities(structure, 'A')
-        ns = NeighborSearch(atoms)
-        
-        # Classify all residues
-        residue_types = {}
-        protein_residues = []
-        dna_residues = []
-        
-        for residue in Selection.unfold_entities(structure, 'R'):
-            mol_type = self._classify_molecule_type(residue)
-            residue_types[residue] = mol_type
+        try:
+            # Run x3dna-dssr to get all hydrogen bonds
+            cmd = f'x3dna-dssr -i="{structure_path}" --get-hbond --json'
             
-            if mol_type == 'protein':
-                protein_residues.append(residue)
-            elif mol_type == 'dna':
-                dna_residues.append(residue)
-        
-        # Find protein-DNA hydrogen bonds
-        for protein_res in protein_residues:
-            for dna_res in dna_residues:
-                # Check protein donor -> DNA acceptor
-                hbonds.extend(self._find_hbonds_between_residues(
-                    protein_res, dna_res, 'protein', 'dna', ns))
+            result = subprocess.run(
+                cmd, 
+                shell=True, 
+                capture_output=True, 
+                text=True,
+                timeout=60
+            )
+            
+            if result.returncode == 0 and result.stdout.strip():
+                # DSSR output contains debug info followed by JSON
+                # Find the JSON portion (starts with {"num_hbonds":...)
+                stdout_lines = result.stdout.strip().split('\n')
+                json_started = False
                 
-                # Check DNA donor -> protein acceptor
-                hbonds.extend(self._find_hbonds_between_residues(
-                    dna_res, protein_res, 'dna', 'protein', ns))
+                for line in stdout_lines:
+                    line = line.strip()
+                    
+                    # Look for the main JSON object containing hydrogen bonds
+                    if line.startswith('{"num_hbonds":'):
+                        try:
+                            # Parse the main JSON containing all hydrogen bonds
+                            dssr_data = json.loads(line)
+                            hbond_list = dssr_data.get('hbonds', [])
+                            
+                            print(f"DSSR found {len(hbond_list)} total hydrogen bonds")
+                            
+                            for hbond_data in hbond_list:
+                                # Filter for the interaction types we want
+                                residue_pair = hbond_data.get('residue_pair', '')
+                                if residue_pair in ['nt:aa', 'aa:aa', 'nt:nt']:
+                                    hbond = self._parse_dssr_hbond(hbond_data)
+                                    if hbond:
+                                        hbonds.append(hbond)
+                            break
+                            
+                        except json.JSONDecodeError as e:
+                            print(f"JSON decode error: {e}")
+                            continue
+            else:
+                print(f"X3DNA-DSSR failed with return code {result.returncode}")
+                if result.stderr:
+                    print(f"DSSR stderr: {result.stderr}")
+                                
+        except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError) as e:
+            print(f"Error running X3DNA-DSSR: {e}")
         
+        print(f"Extracted {len(hbonds)} hydrogen bonds from {structure_path}")
         return hbonds
     
-    def _find_hbonds_between_residues(self, donor_res, acceptor_res, 
-                                      donor_type: str, acceptor_type: str,
-                                      neighbor_search) -> List[HydrogenBond]:
-        """Find hydrogen bonds between two specific residues"""
-        hbonds = []
-        
-        # Get donor and acceptor sets based on molecule type
-        if donor_type == 'protein':
-            donor_atoms = self.protein_donors
-        else:
-            donor_atoms = self.dna_donors
+    def _parse_dssr_hbond(self, hbond_data: dict) -> Optional[HydrogenBond]:
+        """Parse DSSR hydrogen bond data into HydrogenBond object"""
+        try:
+            # Extract information from DSSR format
+            # Example: "atom1_id": "O@A.ALA16", "atom2_id": "OP2@C.DA16"
+            atom1_id = hbond_data.get('atom1_id', '')
+            atom2_id = hbond_data.get('atom2_id', '')
+            distance = float(hbond_data.get('distance', 0.0))
+            residue_pair = hbond_data.get('residue_pair', '')
             
-        if acceptor_type == 'protein':
-            acceptor_atoms = self.protein_acceptors
-        else:
-            acceptor_atoms = self.dna_acceptors
-        
-        # Check all potential donor-acceptor pairs
-        for donor_atom in donor_res.get_atoms():
-            donor_name = donor_atom.get_name()
+            # Parse atom1 (format: "ATOM@CHAIN.RESIDUE")
+            if '@' in atom1_id and '.' in atom1_id:
+                atom1_name, chain_res1 = atom1_id.split('@')
+                chain1, residue1 = chain_res1.split('.')
+                # Extract residue name and number (e.g., "ALA16" -> "ALA", "16")
+                residue1_name = ''.join(c for c in residue1 if c.isalpha())
+                residue1_num = ''.join(c for c in residue1 if c.isdigit())
+            else:
+                return None
             
-            if donor_name not in donor_atoms:
-                continue
-                
-            for acceptor_atom in acceptor_res.get_atoms():
-                acceptor_name = acceptor_atom.get_name()
-                
-                if acceptor_name not in acceptor_atoms:
-                    continue
-                
-                # Look for hydrogen atoms bonded to donor
-                hydrogen_atom = None
-                potential_hydrogens = donor_atoms[donor_name]
-                
-                for h_name in potential_hydrogens:
-                    try:
-                        h_atom = donor_res[h_name]
-                        hydrogen_atom = h_atom
-                        break
-                    except KeyError:
-                        continue
-                
-                # Check geometry
-                is_hbond, distance, angle = self._is_hydrogen_bond_geometry(
-                    donor_atom, acceptor_atom, hydrogen_atom)
-                
-                if is_hbond:
-                    hbond = HydrogenBond(
-                        donor_atom=self._get_atom_identifier(donor_atom),
-                        acceptor_atom=self._get_atom_identifier(acceptor_atom),
-                        donor_residue=self._get_residue_identifier(donor_res),
-                        acceptor_residue=self._get_residue_identifier(acceptor_res),
-                        donor_type=donor_type,
-                        acceptor_type=acceptor_type,
-                        distance=distance,
-                        angle=angle,
-                        interaction_type="protein_dna"
-                    )
-                    hbonds.append(hbond)
-        
-        return hbonds
+            # Parse atom2 (format: "ATOM@CHAIN.RESIDUE")
+            if '@' in atom2_id and '.' in atom2_id:
+                atom2_name, chain_res2 = atom2_id.split('@')
+                chain2, residue2 = chain_res2.split('.')
+                # Extract residue name and number
+                residue2_name = ''.join(c for c in residue2 if c.isalpha())
+                residue2_num = ''.join(c for c in residue2 if c.isdigit())
+            else:
+                return None
+            
+            # Determine molecule types
+            nucleic_residues = {'DA', 'DT', 'DG', 'DC', 'A', 'T', 'G', 'C'}
+            
+            type1 = "nucleic" if residue1_name in nucleic_residues else "protein"
+            type2 = "nucleic" if residue2_name in nucleic_residues else "protein"
+            
+            # For DSSR output, the order matters for determining donor/acceptor
+            # Based on residue_pair, determine which is donor and which is acceptor
+            if residue_pair == "nt:aa":
+                # nucleotide to amino acid
+                donor_atom = atom1_id
+                acceptor_atom = atom2_id
+                donor_residue = f"{chain1}:{residue1_name}:{residue1_num}"
+                acceptor_residue = f"{chain2}:{residue2_name}:{residue2_num}"
+                donor_type = type1
+                acceptor_type = type2
+            elif residue_pair == "aa:nt":
+                # amino acid to nucleotide
+                donor_atom = atom1_id
+                acceptor_atom = atom2_id
+                donor_residue = f"{chain1}:{residue1_name}:{residue1_num}"
+                acceptor_residue = f"{chain2}:{residue2_name}:{residue2_num}"
+                donor_type = type1
+                acceptor_type = type2
+            else:
+                # For aa:aa and nt:nt, use atom1 as donor, atom2 as acceptor
+                donor_atom = atom1_id
+                acceptor_atom = atom2_id
+                donor_residue = f"{chain1}:{residue1_name}:{residue1_num}"
+                acceptor_residue = f"{chain2}:{residue2_name}:{residue2_num}"
+                donor_type = type1
+                acceptor_type = type2
+            
+            return HydrogenBond(
+                donor_atom=donor_atom,
+                acceptor_atom=acceptor_atom,
+                donor_residue=donor_residue,
+                acceptor_residue=acceptor_residue,
+                donor_type=donor_type,
+                acceptor_type=acceptor_type,
+                distance=distance,
+                angle=None,  # DSSR doesn't provide angle in your example
+                interaction_type=residue_pair
+            )
+            
+        except (KeyError, ValueError, TypeError) as e:
+            print(f"Warning: Failed to parse DSSR hydrogen bond data: {e}")
+            print(f"Data: {hbond_data}")
+            return None
     
-    def compare_hydrogen_bonds(self, experimental_hbonds: List[HydrogenBond],
-                              predicted_hbonds: List[HydrogenBond],
-                              tolerance: float = 0.5) -> HBondComparison:
+    def create_sequence_correspondence_from_structures(self, exp_structure_path: Path, 
+                                                     pred_structure_path: Path) -> Dict:
         """
-        Compare hydrogen bond networks between experimental and predicted structures
+        Create sequence-based correspondence mapping directly from PDB structures
+        
+        This maps experimental PDB numbering to predicted PDB numbering using sequence alignment,
+        which is essential for matching DSSR hydrogen bond output that uses original PDB numbering.
         
         Args:
-            experimental_hbonds: List of hydrogen bonds from experimental structure
-            predicted_hbonds: List of hydrogen bonds from predicted structure
-            tolerance: Distance tolerance for matching bonds (Angstroms)
+            exp_structure_path: Path to experimental structure file
+            pred_structure_path: Path to predicted structure file
             
         Returns:
-            HBondComparison object
+            Dict mapping experimental residue identifiers to predicted identifiers
+            Format: {exp_residue_key: pred_residue_key} where key = "chain:resname:resnum"
         """
-        # Create sets for quick lookup
-        exp_bond_map = {hb.bond_id: hb for hb in experimental_hbonds}
-        pred_bond_map = {hb.bond_id: hb for hb in predicted_hbonds}
+        print(f"Creating sequence-based correspondence mapping from PDB structures...")
         
-        # Find exact matches first
-        common_bonds = []
-        experimental_only = []
-        predicted_only = []
-        distance_differences = {}
-        
-        # Check for exact bond ID matches
-        for bond_id, exp_hb in exp_bond_map.items():
-            if bond_id in pred_bond_map:
-                pred_hb = pred_bond_map[bond_id]
-                common_bonds.append((exp_hb, pred_hb))
-                distance_differences[bond_id] = pred_hb.distance - exp_hb.distance
+        try:
+            # Load structures with appropriate parsers
+            exp_structure = self.parser.get_structure("experimental", exp_structure_path)
+            
+            # Use specialized CIF parser for CIF files
+            if str(pred_structure_path).endswith('.cif'):
+                from Bio.PDB import MMCIFParser
+                cif_parser = MMCIFParser(QUIET=True)
+                pred_structure = cif_parser.get_structure("predicted", pred_structure_path)
             else:
-                # Try to find similar bonds (same residues, different atoms)
-                matched = False
-                for pred_bond_id, pred_hb in pred_bond_map.items():
-                    if (exp_hb.donor_residue == pred_hb.donor_residue and 
-                        exp_hb.acceptor_residue == pred_hb.acceptor_residue):
-                        # Similar bond found (same residues)
-                        common_bonds.append((exp_hb, pred_hb))
-                        distance_differences[f"{bond_id}~{pred_bond_id}"] = \
-                            pred_hb.distance - exp_hb.distance
-                        matched = True
-                        # Remove from predicted map to avoid double matching
-                        del pred_bond_map[pred_bond_id]
-                        break
+                pred_structure = self.parser.get_structure("predicted", pred_structure_path)
+            
+            print(f"DEBUG: Experimental structure has models: {[m.get_id() for m in exp_structure]}")
+            print(f"DEBUG: Predicted structure has models: {[m.get_id() for m in pred_structure]}")
+            
+            # Get first available models (handle different numbering between PDB and CIF)
+            if len(list(exp_structure)) == 0:
+                print("ERROR: No models in experimental structure")
+                return {}
+            if len(list(pred_structure)) == 0:
+                print("ERROR: No models in predicted structure")
+                return {}
                 
-                if not matched:
-                    experimental_only.append(exp_hb)
+            exp_model = list(exp_structure)[0]
+            pred_model = list(pred_structure)[0]
+            
+            print(f"DEBUG: Loaded experimental structure with chains: {[c.get_id() for c in exp_model]}")
+            print(f"DEBUG: Loaded predicted structure with chains: {[c.get_id() for c in pred_model]}")
+            
+            correspondence = {}
+            
+            # Process each chain in experimental structure
+            for exp_chain in exp_model:
+                exp_chain_id = exp_chain.get_id()
+                exp_residues = list(exp_chain.get_residues())
+                
+                print(f"DEBUG: Experimental chain {exp_chain_id} has {len(exp_residues)} residues")
+                
+                if not exp_residues:
+                    continue
+                
+                # Extract sequence from experimental chain
+                exp_sequence = []
+                exp_residue_map = {}  # position -> (residue, pdb_info)
+                
+                for i, res in enumerate(exp_residues):
+                    resname = res.get_resname().strip()
+                    exp_sequence.append(resname)
+                    # Store original PDB info: (chain, resname, position, full_id)
+                    exp_residue_map[i] = (res, exp_chain_id, resname, res.get_id()[1], res.get_id())
+                
+                # Find matching chain in predicted structure by sequence similarity
+                best_match_chain = None
+                best_similarity = 0
+                
+                for pred_chain in pred_model:
+                    pred_chain_id = pred_chain.get_id()
+                    pred_residues = list(pred_chain.get_residues())
+                    if not pred_residues:
+                        continue
+                    
+                    pred_sequence = [res.get_resname().strip() for res in pred_residues]
+                    
+                    # Calculate sequence similarity
+                    similarity = self._calculate_sequence_similarity(exp_sequence, pred_sequence)
+                    
+                    print(f"DEBUG: Chain similarity {exp_chain_id} vs {pred_chain_id}: {similarity:.3f} "
+                          f"(exp:{len(exp_sequence)}, pred:{len(pred_sequence)})")
+                    
+                    if similarity > best_similarity:  # Lowered threshold for debugging
+                        best_similarity = similarity
+                        best_match_chain = pred_chain
+                
+                if best_match_chain and best_similarity > 0.3:  # Lower threshold temporarily
+                    pred_chain_id = best_match_chain.get_id()
+                    pred_residues = list(best_match_chain.get_residues())
+                    pred_sequence = [res.get_resname().strip() for res in pred_residues]
+                    
+                    # Perform sequence alignment
+                    alignment = self._align_sequences_for_correspondence(exp_sequence, pred_sequence)
+                    
+                    print(f"DEBUG: Alignment produced {len(alignment)} correspondences")
+                    
+                    # Create correspondence mapping using original PDB identifiers
+                    for exp_idx, pred_idx in alignment:
+                        if exp_idx < len(exp_residue_map) and pred_idx < len(pred_residues):
+                            exp_res, exp_cid, exp_rname, exp_rnum, exp_full_id = exp_residue_map[exp_idx]
+                            pred_res = pred_residues[pred_idx]
+                            pred_rname = pred_res.get_resname().strip()
+                            pred_rnum = pred_res.get_id()[1]
+                            
+                            # Use format that matches DSSR output: "CHAIN.RESNAMERESNUM"
+                            # Handle negative residue numbers (DNA often starts at negative positions)
+                            exp_key = f"{exp_cid}.{exp_rname}{exp_rnum}"
+                            pred_key = f"{pred_chain_id}.{pred_rname}{pred_rnum}"
+                            
+                            correspondence[exp_key] = pred_key
+                            
+                            if len(correspondence) <= 3:  # Debug first few
+                                print(f"DEBUG: Mapped {exp_key} -> {pred_key}")
+                    
+                    print(f"Chain {exp_chain_id} -> {pred_chain_id}: {len(alignment)} residues aligned "
+                          f"(similarity: {best_similarity:.2f})")
+                else:
+                    print(f"Warning: No suitable match found for experimental chain {exp_chain_id} "
+                          f"(best similarity: {best_similarity:.3f})")
+            
+            print(f"Created sequence correspondence for {len(correspondence)} residues")
+            return correspondence
+            
+        except Exception as e:
+            print(f"Error creating sequence correspondence: {e}")
+            import traceback
+            traceback.print_exc()
+            return {}
+    
+    def _calculate_sequence_similarity(self, seq1: List[str], seq2: List[str]) -> float:
+        """Calculate sequence similarity between two residue lists"""
+        if not seq1 or not seq2:
+            return 0.0
         
-        # Remaining predicted bonds are predicted-only
-        for bond_id, pred_hb in pred_bond_map.items():
-            if not any(bond_id in pair[1].bond_id or 
-                      f"{pair[0].bond_id}~{bond_id}" in distance_differences
-                      for pair in common_bonds):
-                predicted_only.append(pred_hb)
+        # Simple similarity: count matching residues in overlapping region
+        min_len = min(len(seq1), len(seq2))
+        matches = sum(1 for i in range(min_len) if seq1[i] == seq2[i])
+        return matches / min_len
+    
+    def _align_sequences_for_correspondence(self, exp_seq: List[str], pred_seq: List[str]) -> List[Tuple[int, int]]:
+        """
+        Simple sequence alignment for correspondence mapping
         
-        return HBondComparison(
-            experimental_bonds=experimental_hbonds,
-            predicted_bonds=predicted_hbonds,
-            common_bonds=common_bonds,
-            experimental_only=experimental_only,
-            predicted_only=predicted_only,
-            bond_distance_differences=distance_differences
-        )
-
+        Returns list of (exp_index, pred_index) pairs for aligned positions
+        """
+        alignment = []
+        
+        # Try direct position matching first
+        min_len = min(len(exp_seq), len(pred_seq))
+        direct_matches = 0
+        
+        for i in range(min_len):
+            if exp_seq[i] == pred_seq[i]:
+                alignment.append((i, i))
+                direct_matches += 1
+        
+        # If direct matching works well (>70%), use it
+        if direct_matches / min_len > 0.7:
+            return alignment
+        
+        # Otherwise, try to find best alignment with offset
+        best_alignment = []
+        best_score = 0
+        
+        # Try different offsets
+        for offset in range(-5, 6):  # Try offsets from -5 to +5
+            current_alignment = []
+            matches = 0
+            
+            for i in range(len(exp_seq)):
+                j = i + offset
+                if 0 <= j < len(pred_seq) and exp_seq[i] == pred_seq[j]:
+                    current_alignment.append((i, j))
+                    matches += 1
+            
+            if matches > best_score:
+                best_score = matches
+                best_alignment = current_alignment
+        
+        return best_alignment
+    
     def compare_hydrogen_bonds_with_correspondence(self, experimental_hbonds: List[HydrogenBond],
                                                   predicted_hbonds: List[HydrogenBond],
-                                                  correspondence_map: Dict[str, str],
-                                                  tolerance: float = 0.5) -> HBondComparison:
+                                                  correspondence_map: Dict) -> HBondComparison:
         """
-        Compare hydrogen bond networks using structural correspondence mapping
+        Compare hydrogen bond networks using sequence alignment-based correspondence mapping
         
-        This method fixes the critical issue where different residue numbering schemes
-        between experimental and predicted structures cause false negative matches.
-        Instead of direct residue ID matching, it uses the structural alignment
-        correspondence to properly identify equivalent bonds.
+        Uses "atom_pair" and "residue_pair" matching as specified by user:
+        - Matching hydrogen bonds share same "atom_pair" (N:O, O:O, etc.)
+        - Matching hydrogen bonds share same "residue_pair" (nt:aa, aa:aa, nt:nt)  
+        - Sequence alignment resolves atom_id differences between experimental and predicted
         
         Args:
             experimental_hbonds: H-bonds from experimental structure
             predicted_hbonds: H-bonds from predicted structure  
-            correspondence_map: Maps exp residue IDs to pred residue IDs
-            tolerance: Distance tolerance for matching bonds (Angstroms)
+            correspondence_map: Dict mapping experimental DSSR keys to predicted DSSR keys
+                               Format: {"A.ALA16": "A.ALA16", "B.DG-2": "B.DG-2", ...}
             
         Returns:
-            HBondComparison with proper correspondence-based matching
+            HBondComparison with proper sequence alignment-based matching and sub-groupings
         """
-        # Create reverse correspondence map (pred -> exp) for efficiency
-        reverse_correspondence = {v: k for k, v in correspondence_map.items()}
+        print(f"Comparing hydrogen bonds using atom_pair/residue_pair matching with {len(correspondence_map)} residue correspondences")
         
-        common_bonds = []
-        experimental_only = []
-        predicted_only = list(predicted_hbonds)  # Start with all predicted bonds
+        if correspondence_map:
+            sample_items = list(correspondence_map.items())[:3]
+            print(f"DEBUG: Sample correspondences: {sample_items}")
+        
+        # Initialize all categories and sub-groupings
+        conserved_bonds = []
+        conserved_protein_protein = []
+        conserved_protein_nucleic = []
+        conserved_nucleic_nucleic = []
+        
+        missing_in_predicted = []
+        missing_protein_protein = []
+        missing_protein_nucleic = []
+        missing_nucleic_nucleic = []
+        
+        novel_in_predicted = list(predicted_hbonds)  # Start with all predicted bonds
+        novel_protein_protein = []
+        novel_protein_nucleic = []
+        novel_nucleic_nucleic = []
+        
         distance_differences = {}
         
-        # Process each experimental bond
-        for exp_hb in experimental_hbonds:
-            matched = False
+        # Process each experimental hydrogen bond
+        for i, exp_hb in enumerate(experimental_hbonds):
+            if i < 3:  # Debug first 3 bonds
+                print(f"DEBUG: Processing exp bond {i+1}: {exp_hb.donor_atom} -> {exp_hb.acceptor_atom}")
+                print(f"       Residues: {exp_hb.donor_residue} -> {exp_hb.acceptor_residue}")
             
-            # Check if both donor and acceptor residues have correspondence
-            exp_donor_id = exp_hb.donor_residue
-            exp_acceptor_id = exp_hb.acceptor_residue
+            # Extract DSSR-format keys from hydrogen bond atoms
+            # Format: "N@A.ALA16" -> "A.ALA16"
+            exp_donor_key = self._extract_dssr_residue_key(exp_hb.donor_atom)
+            exp_acceptor_key = self._extract_dssr_residue_key(exp_hb.acceptor_atom)
             
-            if exp_donor_id in correspondence_map and exp_acceptor_id in correspondence_map:
-                # Get corresponding predicted residue IDs
-                pred_donor_id = correspondence_map[exp_donor_id]
-                pred_acceptor_id = correspondence_map[exp_acceptor_id]
+            if exp_donor_key and exp_acceptor_key:
+                # Look up corresponding predicted residues using sequence alignment
+                pred_donor_key = correspondence_map.get(exp_donor_key)
+                pred_acceptor_key = correspondence_map.get(exp_acceptor_key)
                 
-                # Look for matching predicted bonds with corresponding residues
-                for i, pred_hb in enumerate(predicted_hbonds):
-                    if (pred_hb.donor_residue == pred_donor_id and 
-                        pred_hb.acceptor_residue == pred_acceptor_id):
-                        
-                        # Found a correspondence match - check if atoms are similar
-                        exp_donor_atom = exp_hb.donor_atom.split(':')[-1]  # Get atom name
-                        exp_acceptor_atom = exp_hb.acceptor_atom.split(':')[-1]
-                        pred_donor_atom = pred_hb.donor_atom.split(':')[-1] 
-                        pred_acceptor_atom = pred_hb.acceptor_atom.split(':')[-1]
-                        
-                        # Match if same atom types or within distance tolerance
-                        if ((exp_donor_atom == pred_donor_atom and exp_acceptor_atom == pred_acceptor_atom) or
-                            abs(pred_hb.distance - exp_hb.distance) <= tolerance):
-                            
-                            # This is a true match
-                            common_bonds.append((exp_hb, pred_hb))
-                            distance_differences[exp_hb.bond_id] = pred_hb.distance - exp_hb.distance
-                            
-                            # Remove from predicted_only list
-                            if pred_hb in predicted_only:
-                                predicted_only.remove(pred_hb)
-                            
-                            matched = True
-                            break
-            
-            if not matched:
-                # Try looser matching - same residue types in correspondence
-                for i, pred_hb in enumerate(predicted_hbonds):
-                    # Check if residue types match even if exact correspondence missing
-                    exp_donor_type = exp_hb.donor_residue.split(':')[1]  # Get residue type
-                    exp_acceptor_type = exp_hb.acceptor_residue.split(':')[1]
-                    pred_donor_type = pred_hb.donor_residue.split(':')[1]
-                    pred_acceptor_type = pred_hb.acceptor_residue.split(':')[1]
+                if pred_donor_key and pred_acceptor_key:
+                    # Find matching hydrogen bond in predicted structure
+                    matched_bond = self._find_corresponding_hbond_by_dssr_keys(
+                        exp_hb, predicted_hbonds, pred_donor_key, pred_acceptor_key)
                     
-                    if (exp_donor_type == pred_donor_type and 
-                        exp_acceptor_type == pred_acceptor_type and
-                        abs(pred_hb.distance - exp_hb.distance) <= tolerance):
+                    if matched_bond:
+                        # Category 1: Present in both structures
+                        bond_pair = (exp_hb, matched_bond)
+                        conserved_bonds.append(bond_pair)
                         
-                        # Loose match based on residue types and distance
-                        common_bonds.append((exp_hb, pred_hb))
-                        distance_differences[f"{exp_hb.bond_id}~loose"] = pred_hb.distance - exp_hb.distance
+                        # Sub-categorize by interaction type
+                        interaction_type = self._get_interaction_type(exp_hb)
+                        if interaction_type == "protein:protein":
+                            conserved_protein_protein.append(bond_pair)
+                        elif interaction_type == "protein:nucleic":
+                            conserved_protein_nucleic.append(bond_pair)
+                        elif interaction_type == "nucleic:nucleic":
+                            conserved_nucleic_nucleic.append(bond_pair)
                         
-                        if pred_hb in predicted_only:
-                            predicted_only.remove(pred_hb)
+                        distance_differences[exp_hb.bond_id] = matched_bond.distance - exp_hb.distance
                         
-                        matched = True
-                        break
+                        # Remove the specific matched bond from novel list
+                        if matched_bond in novel_in_predicted:
+                            novel_in_predicted.remove(matched_bond)
+                            
+                        # Also remove any other predicted bonds between the same residue pair
+                        # to prevent double-counting when structures have multiple H-bonds per residue pair
+                        bonds_to_remove = []
+                        for novel_bond in novel_in_predicted:
+                            novel_donor_key = self._extract_dssr_residue_key(novel_bond.donor_atom)
+                            novel_acceptor_key = self._extract_dssr_residue_key(novel_bond.acceptor_atom)
+                            if (novel_donor_key == pred_donor_key and novel_acceptor_key == pred_acceptor_key):
+                                bonds_to_remove.append(novel_bond)
+                        
+                        for bond in bonds_to_remove:
+                            novel_in_predicted.remove(bond)
+                        
+                        print(f"CONSERVED [{interaction_type}]: {exp_donor_key} -> {exp_acceptor_key} "
+                              f"(Δd={matched_bond.distance - exp_hb.distance:.2f}Å)")
+                    else:
+                        # Category 2: Absent in predicted structure
+                        self._categorize_missing_bond(exp_hb, missing_in_predicted, 
+                                                    missing_protein_protein, missing_protein_nucleic, missing_nucleic_nucleic)
+                else:
+                    # No correspondence found (residues not aligned)
+                    if i < 3:
+                        print(f"DEBUG: No sequence correspondence for {exp_donor_key} or {exp_acceptor_key}")
+                    self._categorize_missing_bond(exp_hb, missing_in_predicted,
+                                                missing_protein_protein, missing_protein_nucleic, missing_nucleic_nucleic)
+            else:
+                # Malformed DSSR identifier
+                if i < 3:
+                    print(f"DEBUG: Could not extract DSSR keys from {exp_hb.donor_atom}, {exp_hb.acceptor_atom}")
+                self._categorize_missing_bond(exp_hb, missing_in_predicted,
+                                            missing_protein_protein, missing_protein_nucleic, missing_nucleic_nucleic)
+        
+        # Category 3: Sub-categorize novel interactions
+        for novel_hb in novel_in_predicted:
+            interaction_type = self._get_interaction_type(novel_hb)
+            if interaction_type == "protein:protein":
+                novel_protein_protein.append(novel_hb)
+            elif interaction_type == "protein:nucleic":
+                novel_protein_nucleic.append(novel_hb)
+            elif interaction_type == "nucleic:nucleic":
+                novel_nucleic_nucleic.append(novel_hb)
             
-            if not matched:
-                experimental_only.append(exp_hb)
+            print(f"NOVEL [{interaction_type}]: {novel_hb.donor_residue} -> {novel_hb.acceptor_residue} "
+                  f"(d={novel_hb.distance:.2f}Å)")
+        
+        # Print summary
+        print(f"\n=== Hydrogen Bond Alignment Summary ===")
+        print(f"Category 1 - Conserved: {len(conserved_bonds)} (PP:{len(conserved_protein_protein)}, "
+              f"PN:{len(conserved_protein_nucleic)}, NN:{len(conserved_nucleic_nucleic)})")
+        print(f"Category 2 - Missing: {len(missing_in_predicted)} (PP:{len(missing_protein_protein)}, "
+              f"PN:{len(missing_protein_nucleic)}, NN:{len(missing_nucleic_nucleic)})")
+        print(f"Category 3 - Novel: {len(novel_in_predicted)} (PP:{len(novel_protein_protein)}, "
+              f"PN:{len(novel_protein_nucleic)}, NN:{len(novel_nucleic_nucleic)})")
         
         return HBondComparison(
             experimental_bonds=experimental_hbonds,
             predicted_bonds=predicted_hbonds,
-            common_bonds=common_bonds,
-            experimental_only=experimental_only,
-            predicted_only=predicted_only,
+            common_bonds=conserved_bonds,
+            common_protein_protein=conserved_protein_protein,
+            common_protein_nucleic=conserved_protein_nucleic,
+            common_nucleic_nucleic=conserved_nucleic_nucleic,
+            experimental_only=missing_in_predicted,
+            missing_protein_protein=missing_protein_protein,
+            missing_protein_nucleic=missing_protein_nucleic,
+            missing_nucleic_nucleic=missing_nucleic_nucleic,
+            predicted_only=novel_in_predicted,
+            novel_protein_protein=novel_protein_protein,
+            novel_protein_nucleic=novel_protein_nucleic,
+            novel_nucleic_nucleic=novel_nucleic_nucleic,
             bond_distance_differences=distance_differences
         )
     
+    def _find_corresponding_hbond(self, exp_hb: HydrogenBond, predicted_hbonds: List[HydrogenBond],
+                                 pred_donor_key: str, pred_acceptor_key: str) -> Optional[HydrogenBond]:
+        """
+        Find corresponding hydrogen bond using atom_pair and residue_pair matching
+        
+        Matching criteria based on user requirement:
+        - Same "atom_pair" (e.g., N:O, O:O, etc.)  
+        - Same "residue_pair" (e.g., nt:aa, aa:aa, nt:nt)
+        - Use sequence alignment to resolve atom_id differences
+        """
+        # Extract atom pair from experimental bond
+        exp_atom_pair = self._get_atom_pair(exp_hb)
+        exp_residue_pair = exp_hb.interaction_type  # This is set from DSSR residue_pair
+        
+        best_match = None
+        best_compatibility = 0
+        
+        for pred_hb in predicted_hbonds:
+            pred_parts_donor = pred_hb.donor_residue.split(':')
+            pred_parts_acceptor = pred_hb.acceptor_residue.split(':')
+            
+            if len(pred_parts_donor) >= 3 and len(pred_parts_acceptor) >= 3:
+                pred_hb_donor_key = f"{pred_parts_donor[0]}:{pred_parts_donor[2]}"
+                pred_hb_acceptor_key = f"{pred_parts_acceptor[0]}:{pred_parts_acceptor[2]}"
+                
+                # Check if this bond matches the sequence-aligned positions
+                if (pred_hb_donor_key == pred_donor_key and pred_hb_acceptor_key == pred_acceptor_key):
+                    
+                    # Primary matching criteria: atom_pair and residue_pair
+                    pred_atom_pair = self._get_atom_pair(pred_hb)
+                    pred_residue_pair = pred_hb.interaction_type
+                    
+                    # Calculate compatibility score
+                    compatibility = 0
+                    
+                    # Must have same residue_pair (nt:aa, aa:aa, nt:nt)
+                    if pred_residue_pair == exp_residue_pair:
+                        compatibility += 3  # High weight for residue pair match
+                        
+                        # Must have same atom_pair (N:O, O:O, etc.)
+                        if pred_atom_pair == exp_atom_pair:
+                            compatibility += 2  # High weight for atom pair match
+                            
+                            # Bonus for similar distance
+                            if abs(pred_hb.distance - exp_hb.distance) <= self.distance_tolerance:
+                                compatibility += 1
+                        
+                        # Store best match
+                        if compatibility > best_compatibility:
+                            best_compatibility = compatibility
+                            best_match = pred_hb
+        
+        # Require minimum compatibility (residue_pair + atom_pair match)
+        if best_compatibility >= 5:  # 3 + 2 = 5 minimum
+            return best_match
+        
+        return None
+    
+    def _get_atom_pair(self, hbond: HydrogenBond) -> str:
+        """
+        Extract atom pair type from hydrogen bond (e.g., N:O, O:O)
+        
+        Parses DSSR atom IDs like "N@A.ALA16" to get atom type
+        """
+        try:
+            # Extract atom names from DSSR format: "ATOM@CHAIN.RESIDUE"
+            donor_atom_name = hbond.donor_atom.split('@')[0] if '@' in hbond.donor_atom else hbond.donor_atom
+            acceptor_atom_name = hbond.acceptor_atom.split('@')[0] if '@' in hbond.acceptor_atom else hbond.acceptor_atom
+            
+            # Clean atom names (remove numbers, keep only element)
+            donor_element = ''.join(c for c in donor_atom_name if c.isalpha())
+            acceptor_element = ''.join(c for c in acceptor_atom_name if c.isalpha())
+            
+            return f"{donor_element}:{acceptor_element}"
+            
+        except (IndexError, AttributeError):
+            return "unknown:unknown"
+    
+    def _extract_dssr_residue_key(self, atom_id: str) -> Optional[str]:
+        """
+        Extract DSSR residue key from atom ID
+        
+        Converts "N@A.ALA16" -> "A.ALA16"
+        """
+        try:
+            if '@' in atom_id:
+                return atom_id.split('@')[1]  # "A.ALA16"
+            else:
+                return None
+        except (IndexError, AttributeError):
+            return None
+    
+    def _find_corresponding_hbond_by_dssr_keys(self, exp_hb: HydrogenBond, predicted_hbonds: List[HydrogenBond],
+                                              pred_donor_key: str, pred_acceptor_key: str) -> Optional[HydrogenBond]:
+        """
+        Find corresponding hydrogen bond using DSSR keys and atom_pair/residue_pair matching
+        
+        Args:
+            exp_hb: Experimental hydrogen bond
+            predicted_hbonds: List of predicted hydrogen bonds
+            pred_donor_key: Predicted donor residue key (e.g., "A.ALA16")
+            pred_acceptor_key: Predicted acceptor residue key (e.g., "B.DG-2")
+        """
+        exp_atom_pair = self._get_atom_pair(exp_hb)
+        exp_residue_pair = exp_hb.interaction_type
+        
+        best_match = None
+        best_compatibility = 0
+        
+        for pred_hb in predicted_hbonds:
+            # Extract DSSR keys from predicted bond
+            pred_hb_donor_key = self._extract_dssr_residue_key(pred_hb.donor_atom)
+            pred_hb_acceptor_key = self._extract_dssr_residue_key(pred_hb.acceptor_atom)
+            
+            # Check if this bond involves the sequence-aligned residues
+            if (pred_hb_donor_key == pred_donor_key and pred_hb_acceptor_key == pred_acceptor_key):
+                
+                # Primary matching criteria: atom_pair and residue_pair
+                pred_atom_pair = self._get_atom_pair(pred_hb)
+                pred_residue_pair = pred_hb.interaction_type
+                
+                # Calculate compatibility score
+                compatibility = 0
+                
+                # Must have same residue_pair (nt:aa, aa:aa, nt:nt)
+                if pred_residue_pair == exp_residue_pair:
+                    compatibility += 3  # High weight for residue pair match
+                    
+                    # Must have same atom_pair (N:O, O:O, etc.)
+                    if pred_atom_pair == exp_atom_pair:
+                        compatibility += 2  # High weight for atom pair match
+                        
+                        # Bonus for similar distance
+                        if abs(pred_hb.distance - exp_hb.distance) <= self.distance_tolerance:
+                            compatibility += 1
+                
+                # Store best match
+                if compatibility > best_compatibility:
+                    best_compatibility = compatibility
+                    best_match = pred_hb
+        
+        # Require minimum compatibility (residue_pair + atom_pair match)
+        if best_compatibility >= 5:  # 3 + 2 = 5 minimum
+            return best_match
+        
+        return None
+    
+    def _get_interaction_type(self, hbond: HydrogenBond) -> str:
+        """Determine interaction type based on donor and acceptor molecule types"""
+        donor_type = "nucleic" if hbond.donor_type == "dna" else hbond.donor_type
+        acceptor_type = "nucleic" if hbond.acceptor_type == "dna" else hbond.acceptor_type
+        
+        if donor_type == "protein" and acceptor_type == "protein":
+            return "protein:protein"
+        elif donor_type == "nucleic" and acceptor_type == "nucleic":
+            return "nucleic:nucleic"
+        elif (donor_type == "protein" and acceptor_type == "nucleic") or \
+             (donor_type == "nucleic" and acceptor_type == "protein"):
+            return "protein:nucleic"
+        else:
+            return f"{donor_type}:{acceptor_type}"
+    
+    def _categorize_missing_bond(self, exp_hb: HydrogenBond, missing_list: List,
+                               missing_pp: List, missing_pn: List, missing_nn: List):
+        """Helper to categorize missing bonds by interaction type"""
+        missing_list.append(exp_hb)
+        interaction_type = self._get_interaction_type(exp_hb)
+        
+        if interaction_type == "protein:protein":
+            missing_pp.append(exp_hb)
+        elif interaction_type == "protein:nucleic":
+            missing_pn.append(exp_hb)
+        elif interaction_type == "nucleic:nucleic":
+            missing_nn.append(exp_hb)
+        
+        print(f"MISSING [{interaction_type}]: {exp_hb.donor_residue} -> {exp_hb.acceptor_residue} "
+              f"(d={exp_hb.distance:.2f}Å)")
+    
     def calculate_statistics(self, comparison: HBondComparison) -> HBondStatistics:
         """Calculate summary statistics from hydrogen bond comparison"""
-        
         total_exp = len(comparison.experimental_bonds)
         total_pred = len(comparison.predicted_bonds) 
         total_common = len(comparison.common_bonds)
         total_exp_only = len(comparison.experimental_only)
         total_pred_only = len(comparison.predicted_only)
         
-        # Calculate conservation rate and prediction accuracy
         conservation_rate = total_common / total_exp if total_exp > 0 else 0.0
         prediction_accuracy = total_common / total_pred if total_pred > 0 else 0.0
         
-        # Calculate mean distance difference for common bonds
         distance_diffs = list(comparison.bond_distance_differences.values())
         mean_distance_diff = np.mean(distance_diffs) if distance_diffs else 0.0
         
-        # Count directional bonds
-        protein_to_dna_exp = sum(1 for hb in comparison.experimental_bonds 
-                                if hb.donor_type == 'protein' and hb.acceptor_type == 'dna')
-        protein_to_dna_pred = sum(1 for hb in comparison.predicted_bonds
-                                 if hb.donor_type == 'protein' and hb.acceptor_type == 'dna')
+        # Count by interaction types
+        pp_exp = len(comparison.common_protein_protein) + len(comparison.missing_protein_protein)
+        pp_pred = len(comparison.common_protein_protein) + len(comparison.novel_protein_protein)
         
-        dna_to_protein_exp = sum(1 for hb in comparison.experimental_bonds
-                                if hb.donor_type == 'dna' and hb.acceptor_type == 'protein')
-        dna_to_protein_pred = sum(1 for hb in comparison.predicted_bonds
-                                 if hb.donor_type == 'dna' and hb.acceptor_type == 'protein')
+        pn_exp = len(comparison.common_protein_nucleic) + len(comparison.missing_protein_nucleic)
+        pn_pred = len(comparison.common_protein_nucleic) + len(comparison.novel_protein_nucleic)
+        
+        nn_exp = len(comparison.common_nucleic_nucleic) + len(comparison.missing_nucleic_nucleic)
+        nn_pred = len(comparison.common_nucleic_nucleic) + len(comparison.novel_nucleic_nucleic)
         
         return HBondStatistics(
             total_experimental=total_exp,
@@ -540,63 +788,38 @@ class HBondAnalyzer:
             conservation_rate=conservation_rate,
             prediction_accuracy=prediction_accuracy,
             mean_distance_difference=mean_distance_diff,
-            protein_to_dna_bonds={
-                'experimental': protein_to_dna_exp,
-                'predicted': protein_to_dna_pred
-            },
-            dna_to_protein_bonds={
-                'experimental': dna_to_protein_exp,
-                'predicted': dna_to_protein_pred
-            }
+            protein_to_protein_counts={'experimental': pp_exp, 'predicted': pp_pred},
+            protein_to_nucleic_counts={'experimental': pn_exp, 'predicted': pn_pred},
+            nucleic_to_nucleic_counts={'experimental': nn_exp, 'predicted': nn_pred}
         )
     
-    def analyze_structures(self, experimental_path: Path, predicted_path: Path) -> Tuple[HBondComparison, HBondStatistics]:
-        """
-        Analyze hydrogen bond networks in experimental vs predicted structures
-        
-        Args:
-            experimental_path: Path to experimental structure
-            predicted_path: Path to predicted structure
-            
-        Returns:
-            (HBondComparison, HBondStatistics)
-        """
-        # Load structures
-        exp_structure = get_structure(experimental_path)
-        pred_structure = get_structure(predicted_path)
-        
-        if not exp_structure or not pred_structure:
-            raise ValueError(f"Could not load structures from {experimental_path} or {predicted_path}")
-        
-        # Find hydrogen bonds
-        exp_hbonds = self.find_hydrogen_bonds(exp_structure)
-        pred_hbonds = self.find_hydrogen_bonds(pred_structure)
-        
-        # Compare networks
-        comparison = self.compare_hydrogen_bonds(exp_hbonds, pred_hbonds)
-        statistics = self.calculate_statistics(comparison)
-        
-        return comparison, statistics
-
     def analyze_structures_with_correspondence(self, experimental_path: Path, predicted_path: Path, 
-                                             correspondence_map: Dict[str, str]) -> Tuple[HBondComparison, HBondStatistics]:
+                                             correspondence_map: Optional[Dict] = None) -> Tuple[HBondComparison, HBondStatistics]:
         """
-        Analyze hydrogen bond networks using X3DNA-DSSR with structural correspondence mapping
+        Analyze hydrogen bond networks using X3DNA-DSSR with sequence-based correspondence mapping
         
         Args:
             experimental_path: Path to experimental structure
             predicted_path: Path to predicted structure  
-            correspondence_map: Dict mapping experimental residue IDs to predicted residue IDs
+            correspondence_map: Optional pre-computed correspondence map. If None, will create from sequences.
                                
         Returns:
             (HBondComparison, HBondStatistics) with X3DNA-DSSR analysis
         """
         try:
-            # Use X3DNA-DSSR with bash and jq for robust hydrogen bond analysis
-            exp_hbonds = self._extract_hbonds_with_dssr(experimental_path)
-            pred_hbonds = self._extract_hbonds_with_dssr(predicted_path)
+            # Use X3DNA-DSSR for hydrogen bond extraction
+            exp_hbonds = self.extract_hbonds_with_dssr(experimental_path)
+            pred_hbonds = self.extract_hbonds_with_dssr(predicted_path)
             
-            # Use correspondence-aware comparison
+            print(f"Extracted {len(exp_hbonds)} experimental and {len(pred_hbonds)} predicted hydrogen bonds")
+            
+            # Create sequence-based correspondence if not provided
+            if correspondence_map is None:
+                print("Creating sequence-based correspondence mapping from PDB structures...")
+                correspondence_map = self.create_sequence_correspondence_from_structures(
+                    experimental_path, predicted_path)
+            
+            # Use correspondence-aware comparison with atom_pair/residue_pair matching
             comparison = self.compare_hydrogen_bonds_with_correspondence(
                 exp_hbonds, pred_hbonds, correspondence_map)
             statistics = self.calculate_statistics(comparison)
@@ -604,145 +827,26 @@ class HBondAnalyzer:
             return comparison, statistics
             
         except Exception as e:
-            print(f"Warning: X3DNA-DSSR hydrogen bond analysis failed: {e}")
-            # Fallback to simple analysis without critical interactions
-            exp_structure = get_structure(experimental_path)
-            pred_structure = get_structure(predicted_path)
-            
-            if not exp_structure or not pred_structure:
-                raise ValueError(f"Could not load structures from {experimental_path} or {predicted_path}")
-            
-            exp_hbonds = self.find_hydrogen_bonds(exp_structure)
-            pred_hbonds = self.find_hydrogen_bonds(pred_structure)
-            
-            comparison = self.compare_hydrogen_bonds(exp_hbonds, pred_hbonds)
-            statistics = self.calculate_statistics(comparison)
-            
-            return comparison, statistics
-    
-    def _extract_hbonds_with_dssr(self, structure_path: Path) -> List[HydrogenBond]:
-        """
-        Extract hydrogen bonds using X3DNA-DSSR with bash and jq
-        
-        Uses the approach: x3dna-dssr -i=input_file --get-hbond --json | jq '.hbonds[] | select(.residue_pair=="TYPE")'
-        where TYPE is "nt:aa", "aa:aa", or "nt:nt"
-        
-        Args:
-            structure_path: Path to structure file
-            
-        Returns:
-            List of HydrogenBond objects
-        """
-        import subprocess
-        import json
-        import tempfile
-        
-        hbonds = []
-        
-        # Run X3DNA-DSSR for each interaction type
-        interaction_types = ["nt:aa", "aa:aa", "nt:nt"]
-        
-        for interaction_type in interaction_types:
-            try:
-                # Run x3dna-dssr with bash and jq
-                cmd = f'x3dna-dssr -i="{structure_path}" --get-hbond --json | jq ".hbonds[]? | select(.residue_pair?==\\"{interaction_type}\\")"'
-                
-                result = subprocess.run(
-                    cmd, 
-                    shell=True, 
-                    capture_output=True, 
-                    text=True,
-                    timeout=60
-                )
-                
-                if result.returncode == 0 and result.stdout.strip():
-                    # Parse each line as a separate JSON object
-                    for line in result.stdout.strip().split('\n'):
-                        if line.strip():
-                            try:
-                                hbond_data = json.loads(line)
-                                hbond = self._parse_dssr_hbond(hbond_data, interaction_type)
-                                if hbond:
-                                    hbonds.append(hbond)
-                            except json.JSONDecodeError:
-                                continue
-                                
-            except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError) as e:
-                print(f"Warning: X3DNA-DSSR failed for {interaction_type}: {e}")
-                continue
-        
-        return hbonds
-    
-    def _parse_dssr_hbond(self, hbond_data: dict, interaction_type: str) -> Optional[HydrogenBond]:
-        """
-        Parse DSSR hydrogen bond data into HydrogenBond object
-        
-        Args:
-            hbond_data: JSON data from DSSR
-            interaction_type: Type of interaction ("nt:aa", "aa:aa", "nt:nt")
-            
-        Returns:
-            HydrogenBond object or None if parsing fails
-        """
-        try:
-            # Extract donor and acceptor information
-            donor_info = hbond_data.get('donor', {})
-            acceptor_info = hbond_data.get('acceptor', {})
-            
-            # Get distance
-            distance = float(hbond_data.get('distance', 0.0))
-            
-            # Get angle if available
-            angle = hbond_data.get('angle')
-            if angle is not None:
-                angle = float(angle)
-            
-            # Parse residue and atom information
-            donor_atom = f"{donor_info.get('chain', '')}:{donor_info.get('residue', '')}:{donor_info.get('atom', '')}"
-            acceptor_atom = f"{acceptor_info.get('chain', '')}:{acceptor_info.get('residue', '')}:{acceptor_info.get('atom', '')}"
-            
-            donor_residue = f"{donor_info.get('chain', '')}:{donor_info.get('residue_name', '')}:{donor_info.get('residue_number', '')}"
-            acceptor_residue = f"{acceptor_info.get('chain', '')}:{acceptor_info.get('residue_name', '')}:{acceptor_info.get('residue_number', '')}"
-            
-            # Determine donor and acceptor types
-            if interaction_type == "nt:aa":
-                donor_type = "dna"
-                acceptor_type = "protein"
-            elif interaction_type == "aa:nt":
-                donor_type = "protein" 
-                acceptor_type = "dna"
-            elif interaction_type == "aa:aa":
-                donor_type = "protein"
-                acceptor_type = "protein"
-            elif interaction_type == "nt:nt":
-                donor_type = "dna"
-                acceptor_type = "dna"
-            else:
-                # Try to infer from residue names
-                donor_name = donor_info.get('residue_name', '').strip()
-                acceptor_name = acceptor_info.get('residue_name', '').strip()
-                
-                donor_type = "dna" if donor_name in {'DA', 'DT', 'DG', 'DC', 'A', 'T', 'G', 'C'} else "protein"
-                acceptor_type = "dna" if acceptor_name in {'DA', 'DT', 'DG', 'DC', 'A', 'T', 'G', 'C'} else "protein"
-            
-            return HydrogenBond(
-                donor_atom=donor_atom,
-                acceptor_atom=acceptor_atom,
-                donor_residue=donor_residue,
-                acceptor_residue=acceptor_residue,
-                donor_type=donor_type,
-                acceptor_type=acceptor_type,
-                distance=distance,
-                angle=angle,
-                interaction_type=interaction_type
+            print(f"Error: X3DNA-DSSR hydrogen bond analysis failed: {e}")
+            # Return empty results rather than crashing
+            empty_comparison = HBondComparison(
+                experimental_bonds=[], predicted_bonds=[], common_bonds=[],
+                common_protein_protein=[], common_protein_nucleic=[], common_nucleic_nucleic=[],
+                experimental_only=[], missing_protein_protein=[], missing_protein_nucleic=[], missing_nucleic_nucleic=[],
+                predicted_only=[], novel_protein_protein=[], novel_protein_nucleic=[], novel_nucleic_nucleic=[],
+                bond_distance_differences={}
+            )
+            empty_stats = HBondStatistics(
+                total_experimental=0, total_predicted=0, total_common=0, total_experimental_only=0, total_predicted_only=0,
+                conservation_rate=0.0, prediction_accuracy=0.0, mean_distance_difference=0.0,
+                protein_to_protein_counts={'experimental': 0, 'predicted': 0},
+                protein_to_nucleic_counts={'experimental': 0, 'predicted': 0},
+                nucleic_to_nucleic_counts={'experimental': 0, 'predicted': 0}
             )
             
-        except (KeyError, ValueError, TypeError) as e:
-            print(f"Warning: Failed to parse DSSR hydrogen bond data: {e}")
-            return None
+            return empty_comparison, empty_stats
     
     def export_results(self, comparison: HBondComparison, statistics: HBondStatistics,
-                      critical_interactions: List[CriticalInteraction], critical_verification: Dict,
                       output_dir: Path, pair_id: str):
         """
         Export hydrogen bond analysis results
@@ -761,84 +865,51 @@ class HBondAnalyzer:
         
         # Export comparison summary
         self._export_hbond_summary(comparison, statistics, output_dir / f"{pair_id}_hbond_summary.csv")
-        
-        # Export statistics
-        self._export_statistics(statistics, output_dir / f"{pair_id}_hbond_statistics.json")
-        
-        # Export critical DNA-binding residue interactions
-        self._export_critical_interactions(critical_interactions, critical_verification, 
-                                         output_dir / f"{pair_id}_critical_interactions.csv")
-        
-        # Export critical interaction verification results
-        self._export_critical_verification(critical_verification, 
-                                         output_dir / f"{pair_id}_critical_verification.json")
     
     def _export_hbond_details(self, comparison: HBondComparison, output_path: Path):
         """Export detailed hydrogen bond information"""
-        
         data = []
         
         # Common bonds
         for exp_hb, pred_hb in comparison.common_bonds:
             data.append({
-                'bond_type': 'common',
-                'donor_atom_exp': exp_hb.donor_atom,
-                'acceptor_atom_exp': exp_hb.acceptor_atom,
+                'bond_type': 'conserved',
+                'interaction_type': self._get_interaction_type(exp_hb),
                 'donor_residue_exp': exp_hb.donor_residue,
                 'acceptor_residue_exp': exp_hb.acceptor_residue,
                 'distance_exp': exp_hb.distance,
-                'angle_exp': exp_hb.angle,
-                'donor_atom_pred': pred_hb.donor_atom,
-                'acceptor_atom_pred': pred_hb.acceptor_atom,
                 'donor_residue_pred': pred_hb.donor_residue,
                 'acceptor_residue_pred': pred_hb.acceptor_residue,
                 'distance_pred': pred_hb.distance,
-                'angle_pred': pred_hb.angle,
-                'distance_difference': pred_hb.distance - exp_hb.distance,
-                'donor_type': exp_hb.donor_type,
-                'acceptor_type': exp_hb.acceptor_type
+                'distance_difference': pred_hb.distance - exp_hb.distance
             })
         
-        # Experimental only bonds
+        # Missing bonds
         for hb in comparison.experimental_only:
             data.append({
-                'bond_type': 'experimental_only',
-                'donor_atom_exp': hb.donor_atom,
-                'acceptor_atom_exp': hb.acceptor_atom,
+                'bond_type': 'missing',
+                'interaction_type': self._get_interaction_type(hb),
                 'donor_residue_exp': hb.donor_residue,
                 'acceptor_residue_exp': hb.acceptor_residue,
                 'distance_exp': hb.distance,
-                'angle_exp': hb.angle,
-                'donor_atom_pred': None,
-                'acceptor_atom_pred': None,
                 'donor_residue_pred': None,
                 'acceptor_residue_pred': None,
                 'distance_pred': None,
-                'angle_pred': None,
-                'distance_difference': None,
-                'donor_type': hb.donor_type,
-                'acceptor_type': hb.acceptor_type
+                'distance_difference': None
             })
         
-        # Predicted only bonds
+        # Novel bonds
         for hb in comparison.predicted_only:
             data.append({
-                'bond_type': 'predicted_only',
-                'donor_atom_exp': None,
-                'acceptor_atom_exp': None,
+                'bond_type': 'novel',
+                'interaction_type': self._get_interaction_type(hb),
                 'donor_residue_exp': None,
                 'acceptor_residue_exp': None,
                 'distance_exp': None,
-                'angle_exp': None,
-                'donor_atom_pred': hb.donor_atom,
-                'acceptor_atom_pred': hb.acceptor_atom,
                 'donor_residue_pred': hb.donor_residue,
                 'acceptor_residue_pred': hb.acceptor_residue,
                 'distance_pred': hb.distance,
-                'angle_pred': hb.angle,
-                'distance_difference': None,
-                'donor_type': hb.donor_type,
-                'acceptor_type': hb.acceptor_type
+                'distance_difference': None
             })
         
         df = pd.DataFrame(data)
@@ -847,436 +918,25 @@ class HBondAnalyzer:
     def _export_hbond_summary(self, comparison: HBondComparison, statistics: HBondStatistics, 
                              output_path: Path):
         """Export hydrogen bond comparison summary"""
-        
-        summary_data = [{
-            'metric': 'total_experimental_bonds',
-            'value': statistics.total_experimental
-        }, {
-            'metric': 'total_predicted_bonds', 
-            'value': statistics.total_predicted
-        }, {
-            'metric': 'common_bonds',
-            'value': statistics.total_common
-        }, {
-            'metric': 'experimental_only_bonds',
-            'value': statistics.total_experimental_only
-        }, {
-            'metric': 'predicted_only_bonds',
-            'value': statistics.total_predicted_only
-        }, {
-            'metric': 'conservation_rate',
-            'value': statistics.conservation_rate
-        }, {
-            'metric': 'prediction_accuracy',
-            'value': statistics.prediction_accuracy
-        }, {
-            'metric': 'mean_distance_difference',
-            'value': statistics.mean_distance_difference
-        }, {
-            'metric': 'protein_to_dna_experimental',
-            'value': statistics.protein_to_dna_bonds['experimental']
-        }, {
-            'metric': 'protein_to_dna_predicted',
-            'value': statistics.protein_to_dna_bonds['predicted']
-        }, {
-            'metric': 'dna_to_protein_experimental',
-            'value': statistics.dna_to_protein_bonds['experimental']
-        }, {
-            'metric': 'dna_to_protein_predicted',
-            'value': statistics.dna_to_protein_bonds['predicted']
-        }]
+        summary_data = [
+            {'metric': 'total_experimental_bonds', 'value': statistics.total_experimental},
+            {'metric': 'total_predicted_bonds', 'value': statistics.total_predicted},
+            {'metric': 'conserved_bonds_total', 'value': statistics.total_common},
+            {'metric': 'conserved_protein_protein', 'value': len(comparison.common_protein_protein)},
+            {'metric': 'conserved_protein_nucleic', 'value': len(comparison.common_protein_nucleic)},
+            {'metric': 'conserved_nucleic_nucleic', 'value': len(comparison.common_nucleic_nucleic)},
+            {'metric': 'missing_bonds_total', 'value': statistics.total_experimental_only},
+            {'metric': 'missing_protein_protein', 'value': len(comparison.missing_protein_protein)},
+            {'metric': 'missing_protein_nucleic', 'value': len(comparison.missing_protein_nucleic)},
+            {'metric': 'missing_nucleic_nucleic', 'value': len(comparison.missing_nucleic_nucleic)},
+            {'metric': 'novel_bonds_total', 'value': statistics.total_predicted_only},
+            {'metric': 'novel_protein_protein', 'value': len(comparison.novel_protein_protein)},
+            {'metric': 'novel_protein_nucleic', 'value': len(comparison.novel_protein_nucleic)},
+            {'metric': 'novel_nucleic_nucleic', 'value': len(comparison.novel_nucleic_nucleic)},
+            {'metric': 'conservation_rate', 'value': statistics.conservation_rate},
+            {'metric': 'prediction_accuracy', 'value': statistics.prediction_accuracy},
+            {'metric': 'mean_distance_difference', 'value': statistics.mean_distance_difference}
+        ]
         
         df = pd.DataFrame(summary_data)
         df.to_csv(output_path, index=False)
-    
-    def _export_statistics(self, statistics: HBondStatistics, output_path: Path):
-        """Export statistics as JSON"""
-        import json
-        import numpy as np
-        
-        def convert_numpy_types(obj):
-            """Convert numpy types to native Python types for JSON serialization"""
-            if isinstance(obj, np.integer):
-                return int(obj)
-            elif isinstance(obj, np.floating):
-                return float(obj)
-            elif isinstance(obj, np.ndarray):
-                return obj.tolist()
-            elif isinstance(obj, dict):
-                return {k: convert_numpy_types(v) for k, v in obj.items()}
-            elif isinstance(obj, list):
-                return [convert_numpy_types(item) for item in obj]
-            else:
-                return obj
-        
-        stats_dict = {
-            'total_experimental': statistics.total_experimental,
-            'total_predicted': statistics.total_predicted,
-            'total_common': statistics.total_common,
-            'total_experimental_only': statistics.total_experimental_only,
-            'total_predicted_only': statistics.total_predicted_only,
-            'conservation_rate': statistics.conservation_rate,
-            'prediction_accuracy': statistics.prediction_accuracy,
-            'mean_distance_difference': statistics.mean_distance_difference,
-            'protein_to_dna_bonds': statistics.protein_to_dna_bonds,
-            'dna_to_protein_bonds': statistics.dna_to_protein_bonds
-        }
-        
-        # Convert numpy types to native Python types
-        stats_dict = convert_numpy_types(stats_dict)
-        
-        with open(output_path, 'w') as f:
-            json.dump(stats_dict, f, indent=2)
-    
-    def analyze_critical_dna_binding_interactions(self, experimental_structure, predicted_structure,
-                                                correspondence_map: Dict) -> List[CriticalInteraction]:
-        """
-        Analyze critical DNA-binding residue interactions that are essential for protein-DNA recognition.
-        
-        Focuses on specific functional interactions:
-        1. Arginine NH₃⁺ to DNA phosphate interactions
-        2. Glutamine amide to DNA base interactions  
-        3. Lysine NH₃⁺ to DNA phosphate interactions
-        4. Asparagine amide to DNA base interactions
-        5. Serine/Threonine OH to DNA phosphate interactions
-        
-        Args:
-            experimental_structure: BioPython Structure object (experimental)
-            predicted_structure: BioPython Structure object (predicted)
-            correspondence_map: Residue correspondence between structures
-            
-        Returns:
-            List of CriticalInteraction objects with distance errors
-        """
-        critical_interactions = []
-        
-        # Define critical DNA-binding residue types and their functional atoms
-        critical_residue_types = {
-            'ARG': {
-                'atoms': ['NH1', 'NH2'],  # Guanidinium group
-                'target_type': 'phosphate',
-                'interaction_name': 'Arg_NH3_to_phosphate',
-                'max_distance': 3.5  # Angstroms
-            },
-            'LYS': {
-                'atoms': ['NZ'],  # Amino group  
-                'target_type': 'phosphate',
-                'interaction_name': 'Lys_NH3_to_phosphate',
-                'max_distance': 3.5
-            },
-            'GLN': {
-                'atoms': ['NE2', 'OE1'],  # Amide group
-                'target_type': 'base',
-                'interaction_name': 'Gln_amide_to_base', 
-                'max_distance': 3.2
-            },
-            'ASN': {
-                'atoms': ['ND2', 'OD1'],  # Amide group
-                'target_type': 'base',
-                'interaction_name': 'Asn_amide_to_base',
-                'max_distance': 3.2
-            },
-            'SER': {
-                'atoms': ['OG'],  # Hydroxyl group
-                'target_type': 'phosphate',
-                'interaction_name': 'Ser_OH_to_phosphate',
-                'max_distance': 3.2
-            },
-            'THR': {
-                'atoms': ['OG1'],  # Hydroxyl group
-                'target_type': 'phosphate', 
-                'interaction_name': 'Thr_OH_to_phosphate',
-                'max_distance': 3.2
-            }
-        }
-        
-        # Find critical residues in experimental structure
-        exp_critical_residues = self._find_critical_residues(experimental_structure, critical_residue_types)
-        
-        # Analyze each critical residue
-        for exp_res_info in exp_critical_residues:
-            residue_name = exp_res_info['residue_name']
-            residue_id = exp_res_info['residue_id']
-            residue_obj = exp_res_info['residue_obj']
-            
-            # Find corresponding residue in predicted structure
-            pred_residue = self._find_corresponding_residue(residue_obj, predicted_structure, correspondence_map)
-            
-            if not pred_residue:
-                continue  # Skip if no correspondence found
-                
-            # Analyze the specific interaction for this residue type
-            interaction_config = critical_residue_types[residue_name]
-            
-            # Find experimental interaction
-            exp_interaction = self._find_critical_interaction(
-                residue_obj, experimental_structure, interaction_config, 'experimental')
-            
-            # Find predicted interaction  
-            pred_interaction = self._find_critical_interaction(
-                pred_residue, predicted_structure, interaction_config, 'predicted')
-            
-            # Create CriticalInteraction object
-            critical_interaction = CriticalInteraction(
-                residue_name=residue_name,
-                residue_id=residue_id,
-                interaction_type=interaction_config['interaction_name'],
-                experimental_distance=exp_interaction['distance'] if exp_interaction['found'] else None,
-                predicted_distance=pred_interaction['distance'] if pred_interaction['found'] else None,
-                found_in_experimental=exp_interaction['found'],
-                found_in_predicted=pred_interaction['found']
-            )
-            
-            # Calculate distance error if both interactions found
-            if critical_interaction.is_conserved:
-                critical_interaction.distance_error = abs(
-                    critical_interaction.predicted_distance - critical_interaction.experimental_distance)
-            
-            critical_interactions.append(critical_interaction)
-        
-        return critical_interactions
-    
-    def _find_critical_residues(self, structure, critical_residue_types: Dict) -> List[Dict]:
-        """Find all critical DNA-binding residues in structure"""
-        critical_residues = []
-        
-        for residue in Selection.unfold_entities(structure, 'R'):
-            if self._classify_molecule_type(residue) != 'protein':
-                continue
-                
-            residue_name = residue.get_resname().strip()
-            if residue_name in critical_residue_types:
-                chain_id = residue.get_parent().get_id()
-                residue_id = f"{chain_id}:{residue_name}:{residue.get_id()[1]}"
-                
-                critical_residues.append({
-                    'residue_name': residue_name,
-                    'residue_id': residue_id,
-                    'residue_obj': residue
-                })
-        
-        return critical_residues
-    
-    def _find_corresponding_residue(self, exp_residue, pred_structure, correspondence_map: Dict):
-        """Find corresponding residue in predicted structure using correspondence map"""
-        exp_chain = exp_residue.get_parent().get_id()
-        exp_pos = exp_residue.get_id()[1]
-        
-        # Look up in correspondence map
-        pred_info = correspondence_map.get((exp_chain, exp_pos))
-        if not pred_info:
-            return None
-            
-        pred_chain, pred_pos = pred_info
-        
-        try:
-            return pred_structure[0][pred_chain][pred_pos]
-        except KeyError:
-            return None
-    
-    def _find_critical_interaction(self, residue, structure, interaction_config: Dict, structure_type: str) -> Dict:
-        """Find specific critical interaction for a residue"""
-        result = {'found': False, 'distance': None, 'target_atom': None}
-        
-        # Get functional atoms from the residue
-        functional_atoms = []
-        for atom_name in interaction_config['atoms']:
-            try:
-                atom = residue[atom_name]
-                functional_atoms.append(atom)
-            except KeyError:
-                continue  # Atom not found in residue
-        
-        if not functional_atoms:
-            return result
-        
-        # Find DNA targets based on interaction type
-        target_atoms = self._get_dna_target_atoms(structure, interaction_config['target_type'])
-        
-        if not target_atoms:
-            return result
-        
-        # Find closest interaction within distance threshold
-        min_distance = float('inf')
-        closest_target = None
-        
-        for func_atom in functional_atoms:
-            for target_atom in target_atoms:
-                distance = func_atom - target_atom  # BioPython distance calculation
-                
-                if distance <= interaction_config['max_distance'] and distance < min_distance:
-                    min_distance = distance
-                    closest_target = target_atom
-        
-        if closest_target:
-            result['found'] = True
-            result['distance'] = min_distance
-            result['target_atom'] = closest_target
-        
-        return result
-    
-    def _get_dna_target_atoms(self, structure, target_type: str) -> List:
-        """Get DNA target atoms based on interaction type"""
-        target_atoms = []
-        
-        for residue in Selection.unfold_entities(structure, 'R'):
-            if self._classify_molecule_type(residue) != 'dna':
-                continue
-            
-            if target_type == 'phosphate':
-                # Phosphate atoms: P, O1P, O2P (or OP1, OP2)
-                for atom_name in ['P', 'O1P', 'O2P', 'OP1', 'OP2']:
-                    try:
-                        target_atoms.append(residue[atom_name])
-                    except KeyError:
-                        continue
-                        
-            elif target_type == 'base':
-                # Base atoms: N1, N3, N6, N7, O6, N4, O4, O2 (varied by base type)
-                base_atoms = ['N1', 'N3', 'N6', 'N7', 'O6', 'N4', 'O4', 'O2', 'N2']
-                for atom_name in base_atoms:
-                    try:
-                        target_atoms.append(residue[atom_name])
-                    except KeyError:
-                        continue
-        
-        return target_atoms
-    
-    def verify_critical_interactions_requirement(self, critical_interactions: List[CriticalInteraction]) -> Dict:
-        """
-        Verify that ≥3 critical DNA-binding interactions are conserved between structures.
-        
-        Returns:
-            Dictionary with verification results and detailed breakdown
-        """
-        conserved_interactions = [ci for ci in critical_interactions if ci.is_conserved]
-        missing_interactions = [ci for ci in critical_interactions if ci.is_missing_in_prediction]
-        
-        # Count actual DNA-binding residues in experimental structure
-        experimental_dna_binders = [ci for ci in critical_interactions if ci.found_in_experimental]
-        non_dna_binding_residues = [ci for ci in critical_interactions if not ci.found_in_experimental]
-        
-        # Calculate distance errors for conserved interactions
-        distance_errors = []
-        for ci in conserved_interactions:
-            if ci.distance_error is not None:
-                distance_errors.append(ci.distance_error)
-        
-        # Calculate conservation rate relative to actual DNA-binding residues
-        conservation_rate_all = len(conserved_interactions) / len(critical_interactions) if critical_interactions else 0.0
-        conservation_rate_dna_binders = len(conserved_interactions) / len(experimental_dna_binders) if experimental_dna_binders else 0.0
-        
-        verification_result = {
-            'meets_requirement': len(conserved_interactions) >= 3,
-            'total_critical_interactions': len(critical_interactions),
-            'experimental_dna_binding_residues': len(experimental_dna_binders),
-            'non_dna_binding_residues': len(non_dna_binding_residues),
-            'conserved_interactions': len(conserved_interactions),
-            'missing_interactions': len(missing_interactions),
-            'conservation_rate_all_residues': conservation_rate_all,
-            'conservation_rate_dna_binders': conservation_rate_dna_binders,
-            'mean_distance_error': np.mean(distance_errors) if distance_errors else None,
-            'max_distance_error': np.max(distance_errors) if distance_errors else None,
-            'failed_interactions': [ci.residue_id for ci in missing_interactions],
-            'conserved_interaction_details': [
-                {
-                    'residue_id': ci.residue_id,
-                    'interaction_type': ci.interaction_type,
-                    'distance_error': ci.distance_error
-                }
-                for ci in conserved_interactions
-            ],
-            'experimental_dna_binder_details': [
-                {
-                    'residue_id': ci.residue_id,
-                    'interaction_type': ci.interaction_type,
-                    'conserved': ci.is_conserved,
-                    'experimental_distance': ci.experimental_distance
-                }
-                for ci in experimental_dna_binders
-            ]
-        }
-        
-        return verification_result
-    
-    def _export_critical_interactions(self, critical_interactions: List[CriticalInteraction], 
-                                     critical_verification: Dict, output_path: Path):
-        """Export critical DNA-binding residue interactions to CSV"""
-        import csv
-        
-        with open(output_path, 'w', newline='') as f:
-            writer = csv.writer(f)
-            
-            # Write header with metadata
-            f.write(f"# Critical DNA-binding residue interactions analysis\n")
-            f.write(f"# Total potential DNA-binding residues: {critical_verification['total_critical_interactions']}\n")
-            f.write(f"# Actual DNA-binding residues (experimental): {critical_verification['experimental_dna_binding_residues']}\n")
-            f.write(f"# Non-DNA-binding residues: {critical_verification['non_dna_binding_residues']}\n")
-            f.write(f"# Conserved interactions: {critical_verification['conserved_interactions']}\n")
-            f.write(f"# Missing interactions: {critical_verification['missing_interactions']}\n")
-            f.write(f"# Conservation rate (vs all residues): {critical_verification['conservation_rate_all_residues']:.3f}\n")
-            f.write(f"# Conservation rate (vs DNA-binders): {critical_verification['conservation_rate_dna_binders']:.3f}\n")
-            f.write(f"# Meets ≥3 requirement: {critical_verification['meets_requirement']}\n")
-            
-            # Write CSV headers
-            writer.writerow([
-                'residue_id', 'residue_name', 'interaction_type',
-                'found_in_experimental', 'found_in_predicted', 'is_conserved',
-                'experimental_distance', 'predicted_distance', 'distance_error',
-                'status'
-            ])
-            
-            # Write data for each critical interaction
-            for ci in critical_interactions:
-                status = 'CONSERVED' if ci.is_conserved else 'MISSING_IN_PREDICTION' if ci.is_missing_in_prediction else 'NOT_FOUND_EXPERIMENTAL'
-                
-                writer.writerow([
-                    ci.residue_id,
-                    ci.residue_name,
-                    ci.interaction_type,
-                    ci.found_in_experimental,
-                    ci.found_in_predicted,
-                    ci.is_conserved,
-                    f"{ci.experimental_distance:.3f}" if ci.experimental_distance else 'N/A',
-                    f"{ci.predicted_distance:.3f}" if ci.predicted_distance else 'N/A',
-                    f"{ci.distance_error:.3f}" if ci.distance_error else 'N/A',
-                    status
-                ])
-    
-    def _export_critical_verification(self, critical_verification: Dict, output_path: Path):
-        """Export critical interaction verification results to JSON"""
-        import json
-        
-        def convert_numpy_types(obj):
-            """Convert numpy types to Python native types for JSON serialization"""
-            if hasattr(obj, 'item'):  # numpy scalar
-                return obj.item()
-            elif isinstance(obj, np.ndarray):
-                return obj.tolist()
-            elif isinstance(obj, dict):
-                return {key: convert_numpy_types(value) for key, value in obj.items()}
-            elif isinstance(obj, list):
-                return [convert_numpy_types(item) for item in obj]
-            else:
-                return obj
-        
-        # Convert numpy types to native Python types
-        verification_data = convert_numpy_types(critical_verification)
-        
-        # Add analysis summary
-        verification_data['analysis_summary'] = {
-            'requirement_description': 'Verify ≥3 critical DNA-binding interactions are conserved',
-            'critical_interaction_types': [
-                'Arg_NH3_to_phosphate',
-                'Lys_NH3_to_phosphate', 
-                'Gln_amide_to_base',
-                'Asn_amide_to_base',
-                'Ser_OH_to_phosphate',
-                'Thr_OH_to_phosphate'
-            ],
-            'assessment': 'PASS' if verification_data['meets_requirement'] else 'FAIL',
-            'recommendation': 'Structural prediction quality is adequate for functional interactions' if verification_data['meets_requirement'] else 'Prediction may have significant functional deficiencies'
-        }
-        
-        with open(output_path, 'w') as f:
-            json.dump(verification_data, f, indent=2)

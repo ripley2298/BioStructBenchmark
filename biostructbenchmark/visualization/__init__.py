@@ -40,14 +40,6 @@ else:
     quick_residue_plot = None
     PCAVisualizer = None
 
-# Conditional CURVES+ visualization
-try:
-    from .curves_plots import CurvesVisualizer, create_curves_report
-    _curves_viz_available = True
-except (ImportError, RuntimeError):
-    _curves_viz_available = False
-    CurvesVisualizer = None
-    create_curves_report = None
 
 __all__ = []
 
@@ -60,8 +52,3 @@ if _viz_available:
         'PCAVisualizer'
     ])
 
-if _curves_viz_available:
-    __all__.extend([
-        'CurvesVisualizer',
-        'create_curves_report'
-    ])

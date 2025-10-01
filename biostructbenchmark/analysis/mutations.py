@@ -300,3 +300,26 @@ class MutationAnalyzer:
             }
         
         return type_analysis
+
+
+def run_mutation_analysis(exp_path: Path, pred_path: Path, 
+                         output_dir: Path, args) -> Optional[Dict]:
+    """Run mutation impact analysis"""
+    try:
+        if not args.quiet:
+            print("  → Analyzing mutation impacts...")
+        
+        result = analyze_mutations(exp_path, pred_path, output_dir)
+        
+        if result and not args.quiet:
+            print(f"  ✓ Found {result.get('mutation_count', 0)} mutations")
+        
+        return result
+        
+    except ImportError:
+        if args.verbose:
+            print("  ⚠ Mutations module not available")
+        return None
+    except Exception as e:
+        print(f"  ✗ Mutation analysis failed: {e}")
+        return None

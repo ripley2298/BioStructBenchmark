@@ -9,7 +9,6 @@ import os
 from pathlib import Path
 from typing import List, Tuple, Optional, Dict
 import json
-import csv
 from datetime import datetime
 
 
@@ -38,11 +37,6 @@ def validate_path(path_str: str, must_exist: bool = False,
         raise argparse.ArgumentTypeError(f"Expected file, got directory: {path}")
     
     return path
-
-
-def validate_file_path(path_str: str) -> Path:
-    """Legacy validator for backward compatibility"""
-    return validate_path(path_str, must_exist=True, allow_directory=False)
 
 
 def get_version() -> str:
@@ -99,10 +93,13 @@ Examples:
   biostructbenchmark -e experimental/ -p predicted/ -o results/ --all-benchmarks
   
   # Specific analyses with visualization
-  biostructbenchmark -e exp.pdb -p pred.pdb -o out/ --curves --bfactor --visualize
+  biostructbenchmark -e exp.pdb -p pred.pdb -o out/ --dssr --bfactor --visualize
   
   # Multi-frame with detailed export
   biostructbenchmark -e exp.pdb -p pred.pdb --multi-frame --export-all
+  
+  # Mutant error analysis with PCA (requires multiple structures)
+  biostructbenchmark -e experimental/ -p predicted/ --mutant-pca --visualize
         """
     )
     
@@ -168,12 +165,6 @@ Examples:
     )
     
     analysis_group.add_argument(
-        '--curves',
-        action='store_true',
-        help='Perform CURVES+ DNA geometry analysis'
-    )
-    
-    analysis_group.add_argument(
         '--bfactor',
         action='store_true',
         help='Analyze B-factors vs confidence metrics'
@@ -207,6 +198,12 @@ Examples:
         '--visualize',
         action='store_true',
         help='Generate publication-quality plots and visualizations'
+    )
+    
+    analysis_group.add_argument(
+        '--mutant-pca',
+        action='store_true',
+        help='Perform mutant error analysis using residue-level geometric PCA (requires multiple mutant structures)'
     )
     
     # Processing options
@@ -283,8 +280,8 @@ def validate_arguments(args: argparse.Namespace) -> argparse.Namespace:
         args.predicted = validate_path(args.legacy_files[1], must_exist=True)
         
         # Set default for legacy mode
-        if not any([args.all_benchmarks, args.multi_frame, args.rmsd_only, args.curves, 
-                   args.bfactor, args.consensus, args.mutations, args.visualize]):
+        if not any([args.all_benchmarks, args.multi_frame, args.rmsd_only, 
+                   args.bfactor, args.consensus, args.mutations, args.visualize, args.mutant_pca]):
             args.rmsd_only = True
     
     # Validate experimental/predicted pair
@@ -302,8 +299,8 @@ def validate_arguments(args: argparse.Namespace) -> argparse.Namespace:
         args.multi_frame = True
     
     # Set default analysis if none specified
-    if not any([args.all_benchmarks, args.multi_frame, args.rmsd_only, args.curves, 
-               args.bfactor, args.consensus, args.mutations, args.visualize]):
+    if not any([args.all_benchmarks, args.multi_frame, args.rmsd_only, 
+               args.bfactor, args.consensus, args.mutations, args.visualize, args.mutant_pca]):
         args.rmsd_only = True
     
     # Handle conflicting options
@@ -339,13 +336,13 @@ def get_analysis_flags(args: argparse.Namespace) -> Dict[str, bool]:
         'rmsd': True,  # Always perform basic RMSD
         'multi_frame': args.multi_frame or args.all_benchmarks,
         'rmsd_only': args.rmsd_only,
-        'curves': args.curves or args.all_benchmarks,
         'bfactor': args.bfactor or args.all_benchmarks,
         'consensus': args.consensus or args.all_benchmarks,
         'mutations': args.mutations or args.all_benchmarks,
         'hbond': args.hbond or args.all_benchmarks,
         'dssr': args.dssr or args.all_benchmarks,
         'visualize': args.visualize or args.all_benchmarks,
+        'mutant_pca': args.mutant_pca or args.all_benchmarks,
         'all_benchmarks': args.all_benchmarks
     }
 
@@ -601,132 +598,3 @@ def print_multi_frame_summary(result):
     print("\n" + "=" * 70)
 
 
-# Main execution function
-def main():
-    """Main execution function with multi-frame support"""
-    args = arg_parser()
-    analysis_flags = get_analysis_flags(args)
-    
-    # Print header if not quiet
-    if not args.quiet:
-        print(f"BioStructBenchmark v{get_version()}")
-        print("=" * 70)
-    
-    # Get structure pairs
-    structure_pairs = get_structure_pairs(args)
-    
-    if not structure_pairs:
-        print("Error: No structure pairs to analyze", file=sys.stderr)
-        return 1
-    
-    # Process each pair
-    for exp_path, pred_path in structure_pairs:
-        if args.verbose:
-            print(f"\nProcessing: {exp_path.name} vs {pred_path.name}")
-        
-        # Create output subdirectory for this pair
-        pair_output = args.output / f"{exp_path.stem}_vs_{pred_path.stem}"
-        pair_output.mkdir(parents=True, exist_ok=True)
-        
-        # Multi-frame alignment
-        if analysis_flags['multi_frame']:
-            from biostructbenchmark.core.alignment import perform_multi_frame_alignment
-            
-            if not args.quiet:
-                print("\nPerforming multi-frame alignment analysis...")
-            
-            # Determine if we should save aligned structures
-            alignment_output = pair_output / "alignments" if args.save_aligned else None
-            
-            result = perform_multi_frame_alignment(
-                exp_path, pred_path, alignment_output
-            )
-            
-            if result:
-                # Print summary
-                if not args.quiet:
-                    print_multi_frame_summary(result)
-                
-                # Export results
-                export_multi_frame_results(result, pair_output, args.output_format)
-                
-                # Visualization if requested
-                if analysis_flags['visualize']:
-                    try:
-                        from biostructbenchmark.visualization.residue_plots import PublicationPlotter
-                        plotter = PublicationPlotter()
-                        
-                        # Create multi-frame dashboard
-                        data_dict = {
-                            'rmsd': result.full_structure.residue_rmsds,
-                            'dna_positioning': result.dna_to_protein.residue_rmsds,
-                            'dna_standalone': result.dna_to_dna.residue_rmsds
-                        }
-                        
-                        plotter.summary_dashboard(
-                            data_dict,
-                            pair_output / "multi_frame_dashboard.png"
-                        )
-                        
-                        if not args.quiet:
-                            print(f"Saved visualization to {pair_output / 'multi_frame_dashboard.png'}")
-                    except ImportError:
-                        print("Warning: Visualization module not available")
-        
-        # Single-frame alignment (backward compatibility)
-        elif analysis_flags['rmsd_only'] or args.reference_frame != 'multi':
-            from biostructbenchmark.core.alignment import compare_structures
-            
-            if not args.quiet:
-                print(f"\nPerforming {args.reference_frame} frame alignment...")
-            
-            result = compare_structures(exp_path, pred_path)
-            
-            if result:
-                if not args.quiet:
-                    print(f"Overall RMSD: {result.overall_rmsd:.2f} Å")
-                    print(f"Aligned atoms: {result.aligned_atom_count}")
-                
-                # Export basic results
-                if args.output_format in ['csv', 'both']:
-                    from biostructbenchmark.core.alignment import export_residue_rmsd_csv
-                    export_residue_rmsd_csv(
-                        result.residue_rmsds,
-                        pair_output / "rmsd_analysis.csv",
-                        args.reference_frame
-                    )
-        
-        # Additional analyses
-        if analysis_flags['curves']:
-            if not args.quiet:
-                print("\nPerforming CURVES+ analysis...")
-            # Import and run CURVES+ analysis
-            try:
-                from biostructbenchmark.analysis.curves import run_curves_analysis
-                curves_result = run_curves_analysis(exp_path, pred_path, pair_output)
-                if not args.quiet and curves_result:
-                    print("CURVES+ analysis complete")
-            except ImportError:
-                print("Warning: CURVES+ module not available")
-        
-        if analysis_flags['bfactor']:
-            if not args.quiet:
-                print("\nAnalyzing B-factors...")
-            try:
-                from biostructbenchmark.analysis.bfactor import analyze_bfactors
-                bfactor_result = analyze_bfactors(exp_path, pred_path, pair_output)
-                if not args.quiet and bfactor_result:
-                    print("B-factor analysis complete")
-            except ImportError:
-                print("Warning: B-factor module not available")
-    
-    if not args.quiet:
-        print("\n" + "=" * 70)
-        print(f"Analysis complete! Results saved to: {args.output}")
-        print("=" * 70)
-    
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())
