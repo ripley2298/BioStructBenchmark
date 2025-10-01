@@ -145,7 +145,7 @@ def align_sequences(obs_residues: List, pred_residues: List) -> List[Tuple]:
     
     # First try direct position matching for cases without complex gaps
     direct_matches = []
-    
+
     for pos in obs_positions:
         if pos in pred_pos_map:
             obs_res = obs_pos_map[pos]
@@ -153,15 +153,32 @@ def align_sequences(obs_residues: List, pred_residues: List) -> List[Tuple]:
             # Verify sequence identity for the match
             if obs_res.get_resname().strip() == pred_res.get_resname().strip():
                 direct_matches.append((obs_res, pred_res))
-    
+
     print(f"Direct position matches: {len(direct_matches)}")
-    
-    # If direct matching worked well, use it
-    # Use lower threshold (0.7) to better handle position offsets in DNA/RNA
-    threshold = 0.7
-    if len(direct_matches) >= min(len(obs_residues), len(pred_residues)) * threshold:
-        print(f"Using direct position matching: {len(direct_matches)} pairs")
-        return direct_matches
+
+    # Validate that direct matches form a continuous, sequential alignment
+    # by checking if matched positions are consistently offset
+    if len(direct_matches) > 0:
+        # Check if there's a consistent offset between obs and pred positions
+        offsets = [pred_res.get_id()[1] - obs_res.get_id()[1] for obs_res, pred_res in direct_matches]
+        consistent_offset = all(offset == offsets[0] for offset in offsets)
+
+        # Also check if matches are sequential (no major gaps)
+        obs_match_positions = sorted([obs_res.get_id()[1] for obs_res, _ in direct_matches])
+        sequential = all(obs_match_positions[i+1] - obs_match_positions[i] <= 2
+                        for i in range(len(obs_match_positions)-1))
+
+        print(f"Direct match offset consistency: {consistent_offset} (offset={offsets[0] if consistent_offset else 'varies'})")
+        print(f"Direct match sequential: {sequential}")
+
+        # Only use direct matching if offset is consistent AND matches are sequential AND threshold met
+        threshold = 0.9  # Increased threshold to be more conservative
+        if (consistent_offset and sequential and
+            len(direct_matches) >= min(len(obs_residues), len(pred_residues)) * threshold):
+            print(f"Using direct position matching: {len(direct_matches)} pairs")
+            return direct_matches
+        else:
+            print(f"Direct position matching validation failed, using sequence alignment instead")
     
     # Strategy 2: Use sequence alignment to handle gaps properly
     print("Using sequence alignment to handle gaps...")
@@ -321,36 +338,98 @@ def align_sequences_with_gaps(obs_residues: List, pred_residues: List) -> List[T
 
 
 
-def create_correspondence_map(observed: BioStructure, predicted: BioStructure, 
+def create_correspondence_map(observed: BioStructure, predicted: BioStructure,
                             mol_type: str) -> Dict:
-    """Create sequence-based correspondence map for protein or DNA"""
+    """Create sequence-based correspondence map for protein or DNA using best sequence match"""
     correspondence = {}
-    
+
     # Define residue types
     if mol_type == 'protein':
         valid_types = {'ALA','ARG','ASN','ASP','CYS','GLN','GLU','GLY','HIS','ILE',
                       'LEU','LYS','MET','PHE','PRO','SER','THR','TRP','TYR','VAL'}
     else:  # DNA
         valid_types = {'DA','DT','DG','DC'}
-    
-    # Extract residues by chain
-    for chain in observed[0]:
-        chain_id = chain.get_id()
-        obs_residues = [r for r in chain if r.get_resname().strip() in valid_types]
-        
-        if chain_id in [c.get_id() for c in predicted[0]] and obs_residues:
-            pred_chain = predicted[0][chain_id]
-            pred_residues = [r for r in pred_chain if r.get_resname().strip() in valid_types]
-            
-            if pred_residues:
-                aligned_pairs = align_sequences(obs_residues, pred_residues)
-                print(f"  Chain {chain_id} ({mol_type}): {len(obs_residues)} obs -> {len(pred_residues)} pred -> {len(aligned_pairs)} aligned")
-                for obs_res, pred_res in aligned_pairs:
-                    # Use full residue ID tuples, not just sequence numbers
-                    obs_key = (chain_id, obs_res.get_id())
-                    pred_key = (chain_id, pred_res.get_id())
-                    correspondence[obs_key] = pred_key
-    
+
+    # Extract all predicted chains with their sequences for matching
+    pred_chains_data = []
+    for pred_chain in predicted[0]:
+        pred_residues = [r for r in pred_chain if r.get_resname().strip() in valid_types]
+        if pred_residues:
+            pred_seq = ''.join([get_single_letter_code(r.get_resname()) for r in pred_residues])
+            pred_chains_data.append({
+                'chain_id': pred_chain.get_id(),
+                'residues': pred_residues,
+                'sequence': pred_seq
+            })
+
+    # Track which predicted chains have been matched
+    matched_pred_chains = set()
+
+    # For each observed chain, find best matching predicted chain by sequence
+    for obs_chain in observed[0]:
+        obs_chain_id = obs_chain.get_id()
+        obs_residues = [r for r in obs_chain if r.get_resname().strip() in valid_types]
+
+        if not obs_residues:
+            continue
+
+        obs_seq = ''.join([get_single_letter_code(r.get_resname()) for r in obs_residues])
+
+        # Find best matching predicted chain by sequence similarity
+        best_match = None
+        best_score = 0
+
+        for pred_data in pred_chains_data:
+            if pred_data['chain_id'] in matched_pred_chains:
+                continue  # Skip already matched chains
+
+            # Calculate sequence similarity using alignment
+            # Try both simple position match and sequence alignment
+            pred_seq = pred_data['sequence']
+
+            # Method 1: Direct position comparison
+            min_len = min(len(obs_seq), len(pred_seq))
+            direct_matches = sum(1 for i in range(min_len) if obs_seq[i] == pred_seq[i])
+            direct_similarity = direct_matches / max(len(obs_seq), len(pred_seq))
+
+            # Method 2: Check for substring match (handles N/C-terminal extensions)
+            substring_similarity = 0.0
+            if len(obs_seq) <= len(pred_seq):
+                # Check if obs is a substring of pred
+                for offset in range(len(pred_seq) - len(obs_seq) + 1):
+                    matches = sum(1 for i in range(len(obs_seq)) if obs_seq[i] == pred_seq[offset + i])
+                    substring_similarity = max(substring_similarity, matches / len(obs_seq))
+            else:
+                # Check if pred is a substring of obs
+                for offset in range(len(obs_seq) - len(pred_seq) + 1):
+                    matches = sum(1 for i in range(len(pred_seq)) if pred_seq[i] == obs_seq[offset + i])
+                    substring_similarity = max(substring_similarity, matches / len(pred_seq))
+
+            # Use the better similarity score
+            similarity = max(direct_similarity, substring_similarity)
+
+            if similarity > best_score:
+                best_score = similarity
+                best_match = pred_data
+
+        # Align if we found a good match (>80% similarity)
+        if best_match and best_score > 0.8:
+            pred_chain_id = best_match['chain_id']
+            pred_residues = best_match['residues']
+
+            aligned_pairs = align_sequences(obs_residues, pred_residues)
+            print(f"  Chain {obs_chain_id} ({mol_type}) -> Chain {pred_chain_id}: {len(obs_residues)} obs -> {len(pred_residues)} pred -> {len(aligned_pairs)} aligned (similarity: {best_score:.2f})")
+
+            matched_pred_chains.add(pred_chain_id)
+
+            for obs_res, pred_res in aligned_pairs:
+                # Use full residue ID tuples with actual chain IDs
+                obs_key = (obs_chain_id, obs_res.get_id())
+                pred_key = (pred_chain_id, pred_res.get_id())
+                correspondence[obs_key] = pred_key
+        else:
+            print(f"  Chain {obs_chain_id} ({mol_type}): No matching chain found (best similarity: {best_score:.2f})")
+
     return correspondence
 
 
