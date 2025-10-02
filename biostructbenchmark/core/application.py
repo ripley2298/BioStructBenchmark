@@ -66,13 +66,6 @@ def run_analyses(exp_path: Path, pred_path: Path, output_dir: Path,
             exp_path, pred_path, output_dir, args
         )
     
-    # Mutant PCA error analysis
-    if flags.get('mutant_pca'):
-        from biostructbenchmark.core.runners import run_mutant_pca_analysis
-        results['mutant_pca'] = run_mutant_pca_analysis(
-            exp_path, pred_path, output_dir, args
-        )
-    
     # Visualization
     if flags.get('visualize'):
         from biostructbenchmark.visualization.coordinator import generate_visualizations

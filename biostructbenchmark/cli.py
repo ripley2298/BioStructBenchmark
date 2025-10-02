@@ -97,9 +97,6 @@ Examples:
   
   # Multi-frame with detailed export
   biostructbenchmark -e exp.pdb -p pred.pdb --multi-frame --export-all
-  
-  # Mutant error analysis with PCA (requires multiple structures)
-  biostructbenchmark -e experimental/ -p predicted/ --mutant-pca --visualize
         """
     )
     
@@ -200,12 +197,6 @@ Examples:
         help='Generate publication-quality plots and visualizations'
     )
     
-    analysis_group.add_argument(
-        '--mutant-pca',
-        action='store_true',
-        help='Perform mutant error analysis using residue-level geometric PCA (requires multiple mutant structures)'
-    )
-    
     # Processing options
     processing_group = parser.add_argument_group('Processing Options')
     
@@ -299,8 +290,8 @@ def validate_arguments(args: argparse.Namespace) -> argparse.Namespace:
         args.multi_frame = True
     
     # Set default analysis if none specified
-    if not any([args.all_benchmarks, args.multi_frame, args.rmsd_only, 
-               args.bfactor, args.consensus, args.mutations, args.visualize, args.mutant_pca]):
+    if not any([args.all_benchmarks, args.multi_frame, args.rmsd_only,
+               args.bfactor, args.consensus, args.mutations, args.visualize]):
         args.rmsd_only = True
     
     # Handle conflicting options
@@ -342,7 +333,6 @@ def get_analysis_flags(args: argparse.Namespace) -> Dict[str, bool]:
         'hbond': args.hbond or args.all_benchmarks,
         'dssr': args.dssr or args.all_benchmarks,
         'visualize': args.visualize or args.all_benchmarks,
-        'mutant_pca': args.mutant_pca or args.all_benchmarks,
         'all_benchmarks': args.all_benchmarks
     }
 

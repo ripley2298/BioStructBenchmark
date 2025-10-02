@@ -19,8 +19,6 @@ class BFactorComparison:
     position: int
     experimental_bfactor: float
     predicted_confidence: float  # pLDDT for AlphaFold
-    difference: float
-    normalized_bfactor: float  # Z-score normalized
     
 @dataclass 
 class BFactorStatistics:
@@ -84,9 +82,7 @@ class BFactorAnalyzer:
                 chain_id=chain_id,
                 position=int(position),
                 experimental_bfactor=exp_bfactors[res_key],
-                predicted_confidence=pred_bfactors[res_key],
-                difference=pred_bfactors[res_key] - exp_bfactors[res_key],
-                normalized_bfactor=0.0  # Will calculate after
+                predicted_confidence=pred_bfactors[res_key]
             )
             comparisons.append(comparison)
         
@@ -109,16 +105,16 @@ class BFactorAnalyzer:
         
         correlation = np.corrcoef(exp_normalized, pred_normalized)[0, 1]
         
-        # Calculate RMSD
-        differences = [c.difference for c in comparisons]
-        rmsd = np.sqrt(np.mean(np.array(differences) ** 2))
-        
+        # Calculate RMSD between experimental and predicted
+        differences = np.array(pred_values) - np.array(exp_values)
+        rmsd = np.sqrt(np.mean(differences ** 2))
+
         # Accuracy by confidence regions
-        high_conf = [c for c in comparisons if c.predicted_confidence > 70]
-        low_conf = [c for c in comparisons if c.predicted_confidence <= 70]
-        
-        high_acc = np.mean([abs(c.difference) for c in high_conf]) if high_conf else 0
-        low_acc = np.mean([abs(c.difference) for c in low_conf]) if low_conf else 0
+        high_conf_indices = [i for i, c in enumerate(comparisons) if c.predicted_confidence > 70]
+        low_conf_indices = [i for i, c in enumerate(comparisons) if c.predicted_confidence <= 70]
+
+        high_acc = np.mean([abs(differences[i]) for i in high_conf_indices]) if high_conf_indices else 0
+        low_acc = np.mean([abs(differences[i]) for i in low_conf_indices]) if low_conf_indices else 0
         
         return BFactorStatistics(
             mean_experimental=np.mean(exp_values),
@@ -168,9 +164,7 @@ class BFactorAnalyzer:
                 chain_id=chain_id,
                 position=int(position),
                 experimental_bfactor=obs_bfactors[res_key],
-                predicted_confidence=pred_bfactors[res_key],
-                difference=pred_bfactors[res_key] - obs_bfactors[res_key],
-                normalized_bfactor=0.0
+                predicted_confidence=pred_bfactors[res_key]
             )
             comparisons.append(comparison)
         
@@ -189,31 +183,84 @@ class BFactorAnalyzer:
                 'chain_id': comp.chain_id,
                 'position': comp.position,
                 'experimental_bfactor': comp.experimental_bfactor,
-                'predicted_confidence': comp.predicted_confidence,
-                'difference': comp.difference,
-                'normalized_bfactor': comp.normalized_bfactor
+                'predicted_confidence': comp.predicted_confidence
             })
-        return pd.DataFrame(data)
+        df = pd.DataFrame(data)
+        # Sort by chain_id (A-Z) then position (0-9)
+        df = df.sort_values(['chain_id', 'position'])
+        return df
 
 
-def run_bfactor_analysis(exp_path: Path, pred_path: Path, 
+def run_bfactor_analysis(exp_path: Path, pred_path: Path,
                         output_dir: Path, args) -> Optional[Dict]:
     """Run B-factor vs pLDDT analysis"""
-    try:        
+    try:
         if not args.quiet:
             print("  → Analyzing B-factors vs confidence metrics...")
-        
-        result = analyze_bfactors(exp_path, pred_path, output_dir)
-        
-        if result and not args.quiet:
-            print("  ✓ B-factor analysis complete")
-        
-        return result
-        
-    except ImportError:
+
+        # Initialize analyzer
+        analyzer = BFactorAnalyzer()
+
+        # Compare B-factors
+        comparisons, statistics = analyzer.compare_bfactors(exp_path, pred_path)
+
+        if not comparisons:
+            if args.verbose:
+                print("  ⚠ No common residues found for B-factor comparison")
+            return None
+
+        # Create output directory
+        bfactor_output = output_dir / "bfactor_analysis"
+        bfactor_output.mkdir(parents=True, exist_ok=True)
+
+        # Export results to CSV
+        df = analyzer.to_dataframe(comparisons)
+        csv_path = bfactor_output / "bfactor_comparison.csv"
+        df.to_csv(csv_path, index=False)
+
+        # Export statistics
+        stats_path = bfactor_output / "bfactor_statistics.csv"
+        stats_data = {
+            'metric': [
+                'mean_experimental_bfactor',
+                'mean_predicted_confidence',
+                'correlation',
+                'rmsd',
+                'high_confidence_accuracy',
+                'low_confidence_accuracy'
+            ],
+            'value': [
+                statistics.mean_experimental,
+                statistics.mean_predicted,
+                statistics.correlation,
+                statistics.rmsd,
+                statistics.high_confidence_accuracy,
+                statistics.low_confidence_accuracy
+            ]
+        }
+        pd.DataFrame(stats_data).to_csv(stats_path, index=False)
+
+        if not args.quiet:
+            print(f"  ✓ B-factor analysis complete ({len(comparisons)} residues)")
+            print(f"    Correlation: {statistics.correlation:.3f}")
+            print(f"    RMSD: {statistics.rmsd:.2f}")
+
+        return {
+            'residue_count': len(comparisons),
+            'correlation': statistics.correlation,
+            'rmsd': statistics.rmsd,
+            'mean_experimental': statistics.mean_experimental,
+            'mean_predicted': statistics.mean_predicted,
+            'output_dir': str(bfactor_output)
+        }
+
+    except ImportError as e:
         if args.verbose:
-            print("  ⚠ B-factor module not available")
+            print(f"  ⚠ B-factor module not available: {e}")
         return None
     except Exception as e:
         print(f"  ✗ B-factor analysis failed: {e}")
+        if args.verbose:
+            import traceback
+            traceback.print_exc()
         return None
