@@ -615,9 +615,9 @@ If you use BioStructBenchmark in your research, please cite:
 ```bibtex
 @software{biostructbenchmark,
   title = {BioStructBenchmark: A toolkit for benchmarking DNA-protein structure predictions with critical functional residue interaction analysis},
-  author = {Your Name},
+  author = {Morgan Esler},
   year = {2024},
-  url = {https://github.com/yourusername/biostructbenchmark}
+  url = {https://github.com/ripley2298/BioStructBenchmark}
 }
 ```
 
